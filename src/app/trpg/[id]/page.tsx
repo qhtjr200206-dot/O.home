@@ -90,7 +90,7 @@ async function currentIdToken(): Promise<string | undefined> {
 export default function TrpgDetailPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
-  const { user, isAdmin } = useAuth();
+  const { user, isAdmin, ready: authReady } = useAuth();
   const toast = useToast();
   const [logs, setLogs, loaded] = useLocalList<TrpgLog>('ohome.trpg.v1', TRPG_SEED);
   // 본문은 목록과 분리 저장 (v2.0 — 나만보기 로그도 목록엔 뜨게 하려고 목록 문서의 질의 조건이
@@ -147,10 +147,12 @@ export default function TrpgDetailPage() {
   // 없습니다" 문구만 남아 있었는데, 로그아웃 등으로 권한을 잃은 직후엔 계속 그 화면에 머무를 이유가
   // 없다는 사용자 요청으로 홈으로 보낸다 (v2.0)
   useEffect(() => {
-    if (!loaded) return;
+    // authReady 전엔 isAdmin이 항상 false로 보여 baseAllowed가 실제보다 좁게 잡힌다 —
+    // 그 상태로 판단하면 로그인된 관리자도 잠깐 홈으로 튕기거나 본문이 빈 채로 보일 수 있다
+    if (!loaded || !authReady) return;
     if (!l) { router.replace('/'); return; }
     if (!baseAllowed && !unlocked && !l.passwordHash) router.replace('/');
-  }, [loaded, l, baseAllowed, unlocked, router]);
+  }, [loaded, authReady, l, baseAllowed, unlocked, router]);
   const tryUnlock = async () => {
     if (!l?.passwordHash || pwBusy) return;
     setPwBusy(true);
@@ -267,7 +269,9 @@ export default function TrpgDetailPage() {
   // 본문 로드 — 분리 저장된 본문(bd) 우선, 없으면 구버전 로그의 내장 본문(l.body/bodyId)로 fallback (v2.0)
   const [bodyFailed, setBodyFailed] = useState(false);   // 본문 파일을 읽지 못함 (아래 원본 파일 fallback)
   useEffect(() => {
-    if (!l) return;
+    // authReady 전에는 bd가 아직 비로그인 범위 질의 결과일 수 있다 — 그 상태로 "본문 없음"을
+    // 확정해버리면 관리자에게도 번쩍이고, 토큰도 아직 없는 채로 헛되이 한 번 요청을 보내게 된다
+    if (!l || !authReady) return;
     const src = bd ?? l;   // bd가 없으면(아직 분리 전인 구버전 로그) l 자신에서 읽는다
     setBodyFailed(false);
     if (src.body) { setBodyText(src.body); return; }
@@ -285,7 +289,7 @@ export default function TrpgDetailPage() {
         .then(async b => { if (b) setBodyText(await b.text()); else { setBodyText(''); setBodyFailed(true); } })
         .catch(() => { setBodyText(''); setBodyFailed(true); });
     } else setBodyText('');
-  }, [l, bd]);
+  }, [l, bd, authReady]);
 
   // 샌드박스 안 높이 리포터 수신 → iframe 높이 자동 맞춤 (널 오리진이라 직접 측정 불가)
   useEffect(() => {
@@ -323,7 +327,9 @@ export default function TrpgDetailPage() {
   // 없거나 볼 수 없으면 위 useEffect가 홈으로 보낸다 — 그 사이엔 빈 화면만 (v2.0)
   // 막힌 곳이면 여기서 되돌아간다 — 훅을 모두 부른 뒤여야 렌더마다 개수가 같다
   if (blocked) return blocked;
-  if (!loaded || !l) return <section className="page" />;
+  // authReady 전에는 isAdmin이 항상 false로 보여 baseAllowed를 실제보다 좁게 판정한다 —
+  // 관리자에게 비밀번호 화면이나 빈 본문이 잠깐 번쩍이는 원인이라 auth 확정까지 기다린다
+  if (!loaded || !authReady || !l) return <section className="page" />;
   if (!baseAllowed && !unlocked) {
     if (!l.passwordHash) return <section className="page" />;
     // 비밀번호 게이트 — 서버(/api/trpg/unlock)가 확인하고, 통과하면 본문을 그 자리에서 내려준다
