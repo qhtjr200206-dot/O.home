@@ -7,10 +7,10 @@ import { useHrefBlock } from '@/components/shell/MenuGuard';
 import { sectionHref, MAIN_SEC, secStamp, useSectionTitle } from '@/lib/sectionStore';
 import { useAuth } from '@/lib/auth';
 import { useLocalList } from '@/lib/postStore';
-import { TrpgLog, TRPG_SEED, TrpgLogBody, TRPG_BODY_SEED, bodyVisibility, showAsHtml, decodeLogText, logNo, saveLogBody } from '@/lib/galleryStore';
+import { TrpgLog, TRPG_SEED, TrpgLogBody, TRPG_BODY_SEED, showAsHtml, decodeLogText, logNo, saveLogBody, hashNewPassword } from '@/lib/galleryStore';
 import { Relation, REL_SEED, Character, CHAR_SEED, charGrant } from '@/lib/charStore';
 import { Modal, ConfirmModal } from '@/components/ui/Modal';
-import { getBlob, putBlob, useBlobUrl } from '@/lib/blobStore';
+import { getBlob, putBlob, putPrivateBlob, useBlobUrl } from '@/lib/blobStore';
 import { PageTitle, EditableDesc } from '@/components/ui/PageText';
 import { KInput, KSelect, KDate, KTextarea } from '@/components/ui/Kit';
 import { ColorField } from '@/components/ui/ColorField';
@@ -36,6 +36,55 @@ function LogFrame({ frameRef, html, title, onFrameLoad }: {
       onLoad={onFrameLoad}
     />
   );
+}
+
+/** /api/trpg/unlock 호출 공용 — 비밀번호 또는 로그인 토큰(관리자/멤버) 중 하나로 서버 검증.
+ *  private-trpg/ 저장소 본문이면 signedUrl만 오므로 여기서 한 번 더 받아 실제 텍스트로 만든다
+ *  (바이트는 브라우저 ↔ Storage 직접 통신 — Vercel 함수 응답 용량 한도를 피해 간다). */
+async function callUnlock(id: string, opts: { password?: string; token?: string }): Promise<
+  | { ok: true; body: string; bodyHtml: boolean | null }
+  | { ok: false; error: string }
+> {
+  try {
+    const res = await fetch('/api/trpg/unlock', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', ...(opts.token ? { authorization: `Bearer ${opts.token}` } : {}) },
+      body: JSON.stringify({ id, password: opts.password }),
+    });
+    const json = await res.json();
+    if (!res.ok) return { ok: false, error: json.error ?? '열람에 실패했습니다' };
+    if (json.signedUrl) {
+      const text = await (await fetch(json.signedUrl)).text();
+      return { ok: true, body: text, bodyHtml: json.bodyHtml ?? null };
+    }
+    return { ok: true, body: json.body ?? '', bodyHtml: json.bodyHtml ?? null };
+  } catch {
+    return { ok: false, error: '서버에 연결하지 못했습니다' };
+  }
+}
+
+/** 백업용 원본 파일의 실제 주소(공개 URL 또는 10분짜리 signed URL) — private-trpg/ 경로일 때만 필요.
+ *  이미 Firestore로 bd를 읽은(=권한 있는) 상태에서만 호출되므로 토큰으로 다시 검증한다. */
+async function resolveOriginalUrl(id: string): Promise<string | null> {
+  try {
+    const token = await currentIdToken();
+    const res = await fetch('/api/trpg/unlock', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', ...(token ? { authorization: `Bearer ${token}` } : {}) },
+      body: JSON.stringify({ id, want: 'original' }),
+    });
+    const json = await res.json();
+    return res.ok ? (json.originalUrl ?? null) : null;
+  } catch { return null; }
+}
+
+/** 지금 로그인한 사용자의 Firebase ID 토큰 — 관리자/멤버가 비밀번호 없이 private 본문을
+ *  받아 올 때만 쓴다(그 외 경로는 전부 Firestore 클라이언트 SDK로 충분하다). */
+async function currentIdToken(): Promise<string | undefined> {
+  try {
+    const { getAuth } = await import('firebase/auth');
+    return await getAuth().currentUser?.getIdToken();
+  } catch { return undefined; }
 }
 
 export default function TrpgDetailPage() {
@@ -74,11 +123,21 @@ export default function TrpgDetailPage() {
   const baseAllowed = !!l && (isAdmin || isRelPartner
     || l.visibility === 'public' || (l.visibility === 'member' && !!user));
 
-  // 비밀번호 열람 (4.3) — 세션 동안 유지
+  // 비밀번호 열람 (4.3 — v2.0 서버 재검증) — 본문은 /api/trpg/unlock이 확인 후 내려준 것만 쓴다.
+  // 세션 동안 유지하되, 큰 본문(signed URL 경로)은 본문 자체가 아니라 그 URL을 캐시해 둔다 —
+  // 몇 MB짜리 본문을 sessionStorage에 그대로 넣으면 용량 한도에 걸릴 수 있다.
   const [unlocked, setUnlocked] = useState(false);
   const [pwTry, setPwTry] = useState('');
+  const [pwBusy, setPwBusy] = useState(false);
+  const [pwBody, setPwBody] = useState<{ body: string; bodyHtml: boolean | null } | null>(null);
   useEffect(() => {
-    try { if (sessionStorage.getItem(`trpg-unlock:${id}`) === '1') setUnlocked(true); } catch { /* 무시 */ }
+    try {
+      const raw = sessionStorage.getItem(`trpg-unlock:${id}`);
+      if (!raw) return;
+      const saved = JSON.parse(raw) as { body: string; bodyHtml: boolean | null };
+      setPwBody(saved);
+      setUnlocked(true);
+    } catch { /* 무시 */ }
   }, [id]);
 
   // 이 로그를 볼 수 없으면(없거나, 권한도 비밀번호도 없으면) 홈으로 — 예전엔 이 자리에 "열람 권한이
@@ -87,24 +146,29 @@ export default function TrpgDetailPage() {
   useEffect(() => {
     if (!loaded) return;
     if (!l) { router.replace('/'); return; }
-    if (!baseAllowed && !unlocked && !l.password) router.replace('/');
+    if (!baseAllowed && !unlocked && !l.passwordHash) router.replace('/');
   }, [loaded, l, baseAllowed, unlocked, router]);
-  const tryUnlock = () => {
-    if (l?.password && pwTry === l.password) {
-      setUnlocked(true);
-      try { sessionStorage.setItem(`trpg-unlock:${id}`, '1'); } catch { /* 무시 */ }
-    } else {
-      toast('비밀번호가 올바르지 않습니다');
-    }
+  const tryUnlock = async () => {
+    if (!l?.passwordHash || pwBusy) return;
+    setPwBusy(true);
+    const r = await callUnlock(id, { password: pwTry });
+    setPwBusy(false);
+    if (!r.ok) { toast(r.error); return; }
+    setPwBody({ body: r.body, bodyHtml: r.bodyHtml });
+    setUnlocked(true);
+    try { sessionStorage.setItem(`trpg-unlock:${id}`, JSON.stringify({ body: r.body, bodyHtml: r.bodyHtml })); } catch { /* 무시 */ }
   };
 
   // 로그 정보 수정 — 메타 + 본문 교체(파일/직접 입력) + 썸네일 교체(이미지 크롭/단색·그라데이션)
   const [eOpen, setEOpen] = useState(false);
   const [e, setE] = useState({
     noText: '', title: '', catchphrase: '', writer: '', withText: '',
-    relId: 'none', date: '', visibility: 'public' as TrpgLog['visibility'], password: '',
+    relId: 'none', date: '', visibility: 'public' as TrpgLog['visibility'],
     listHidden: false,   // 목록 표시 여부 (v2.0 — 접근권한과 별개)
   });
+  // 비밀번호 — 해시는 되돌릴 수 없어 미리 채울 수 없으므로 유지/변경/제거 3단 선택 (썸네일·본문과 같은 패턴)
+  const [pwMode, setPwMode] = useState<'keep' | 'change' | 'remove'>('keep');
+  const [pwNew, setPwNew] = useState('');
   // 본문 교체
   const [bodyMode, setBodyMode] = useState<'keep' | 'file' | 'text'>('keep');
   // 본문 표시 방식 (v2.0) — 자동 판별이 직접 쓴 글을 HTML로 오판하는 경우가 있어 직접 고를 수 있게
@@ -126,16 +190,23 @@ export default function TrpgDetailPage() {
 
   const saveEdit = async () => {
     if (!e.title.trim()) { toast('시나리오 타이틀을 입력해 주세요'); return; }
+    // 비밀번호 — 평문은 여기서 끝, 저장은 salt+hash만 (유지면 아래 nextLog의 스프레드가 그대로 들고 간다)
+    const pw = pwMode === 'remove' ? { passwordHash: undefined, passwordSalt: undefined }
+      : pwMode === 'change' ? await hashNewPassword(pwNew) : {};
+    const hasPw = pwMode === 'remove' ? false : pwMode === 'change' ? !!pwNew.trim() : !!l?.passwordHash;
+    // 비밀번호가 걸린(+공개가 아닌) 로그의 큰 본문·원본 파일은 private-trpg/ 로 — 비밀번호를
+    // 몰라도 파일 주소만으로 읽히는 구멍이 안 생기게 한다 (/api/trpg/unlock 참고)
+    const bodyPrivate = hasPw && e.visibility !== 'public';
     // 본문 교체 준비 — 본문은 목록과 분리 저장이라(v2.0) 이제 TrpgLogBody 조각으로 만든다
     let bodyPatch: Partial<TrpgLogBody> = {};
     if (bodyMode === 'file' && eFile) {
       const text = await decodeLogText(eFile);
       bodyPatch = {
-        ...(await saveLogBody(text)),
-        originalFileId: await putBlob(eFile), originalName: eFile.name,
+        ...(await saveLogBody(text, { private: bodyPrivate })),
+        originalFileId: await (bodyPrivate ? putPrivateBlob(eFile) : putBlob(eFile)), originalName: eFile.name,
       };
     } else if (bodyMode === 'text' && eText.trim()) {
-      bodyPatch = await saveLogBody(eText);
+      bodyPatch = await saveLogBody(eText, { private: bodyPrivate });
     }
     // 썸네일 교체 준비
     let thumbPatch: Partial<TrpgLog> = {};
@@ -154,7 +225,7 @@ export default function TrpgDetailPage() {
       writer: e.writer.trim(), withText: e.withText.trim(),
       relId: e.relId === 'none' ? undefined : e.relId,
       date: e.date || undefined,
-      visibility: e.visibility, password: e.password.trim() || undefined,
+      visibility: e.visibility, ...pw,
       listHidden: e.listHidden,
       ...thumbPatch,
       // 예전엔 본문이 이 문서에 있었다 — 저장할 때마다 확실히 비워서(구버전 잔재 정리),
@@ -173,7 +244,7 @@ export default function TrpgDetailPage() {
       originalName: bd?.originalName ?? l?.originalName,
       bodyHtml: bodyDisp === 'auto' ? undefined : bodyDisp === 'html',
       ...bodyPatch,
-      visibility: bodyVisibility(nextLog),
+      visibility: nextLog.visibility,
       ...secStamp(nextLog.secId ?? MAIN_SEC),   // 소속 (v2.0) — 본문 문서도 비공개 판정을 받게
     };
     // 새 본문 문서는 뒤에 붙인다 (v2.0 포크 제보) — 앞에 끼우면 기존 본문 전체의 자리가 밀려
@@ -181,6 +252,7 @@ export default function TrpgDetailPage() {
     setBodies(bd ? bodies.map(x => x.id === id ? nextBody : x) : [...bodies, nextBody]);
     if (bodyMode !== 'keep') setBodyText(null); // 본문 다시 로드
     setEOpen(false);
+    setPwMode('keep'); setPwNew('');
     setBodyMode('keep'); setEFile(null); setEText('');
     setThumbMode('keep'); setEThumb(null); setEThumbUrl(''); setEThumbCrop(undefined);
     toast('저장되었습니다');
@@ -194,6 +266,15 @@ export default function TrpgDetailPage() {
     setBodyFailed(false);
     if (src.body) { setBodyText(src.body); return; }
     if (src.bodyId) {
+      // private-trpg/ 경로는 Storage 규칙이 직접 읽기를 막아 두므로(비밀번호 로그),
+      // 여기 도달한 것 자체가 Firestore 규칙을 통과했다는 뜻(관리자/멤버) — 토큰으로 서버에 꺼내 달라고 한다
+      if (src.bodyId.startsWith('private-trpg/')) {
+        currentIdToken()
+          .then(token => callUnlock(id, { token }))
+          .then(r => { if (r.ok) setBodyText(r.body); else { setBodyText(''); setBodyFailed(true); } })
+          .catch(() => { setBodyText(''); setBodyFailed(true); });
+        return;
+      }
       getBlob(src.bodyId)
         .then(async b => { if (b) setBodyText(await b.text()); else { setBodyText(''); setBodyFailed(true); } })
         .catch(() => { setBodyText(''); setBodyFailed(true); });
@@ -238,8 +319,8 @@ export default function TrpgDetailPage() {
   if (blocked) return blocked;
   if (!loaded || !l) return <section className="page" />;
   if (!baseAllowed && !unlocked) {
-    if (!l.password) return <section className="page" />;
-    // 비밀번호 게이트 — 맞으면 이 세션 동안 열람 유지
+    if (!l.passwordHash) return <section className="page" />;
+    // 비밀번호 게이트 — 서버(/api/trpg/unlock)가 확인하고, 통과하면 본문을 그 자리에서 내려준다
     return (
       <section className="page">
         {/* 안내 문구는 환경설정 > TRPG에서 수정 — 관리자는 이 화면을 볼 수 없다 */}
@@ -247,17 +328,22 @@ export default function TrpgDetailPage() {
           <EditableDesc k="trpg-lock-desc" def="비밀번호를 입력하면 열람할 수 있습니다" always /></div>
         <div className="panel" style={{ maxWidth: 420, margin: '0 auto', padding: 26, display: 'grid', gap: 10 }}>
           <KInput type="password" placeholder="비밀번호" value={pwTry} onChange={e => setPwTry(e.target.value)}
-            onKeyDown={e => { if (e.key === 'Enter') tryUnlock(); }} />
-          <button className="btn btn-dark" style={{ justifyContent: 'center', padding: 9 }} onClick={tryUnlock}>확인</button>
+            onKeyDown={e => { if (e.key === 'Enter') tryUnlock(); }} disabled={pwBusy} />
+          <button className="btn btn-dark" style={{ justifyContent: 'center', padding: 9 }} onClick={tryUnlock} disabled={pwBusy}>
+            {pwBusy ? '확인 중…' : '확인'}
+          </button>
         </div>
       </section>
     );
   }
 
   const rel = rels.find(r => r.id === l.relId);
-  const body = bodyText ?? '';
+  // 비밀번호로 열람 중이면 bd는 애초에 Firestore가 안 내준다(private-trpg 로그는 규칙상 비공개) —
+  // 그 경로로 들어온 사람은 /api/trpg/unlock이 확인 후 내려준 pwBody가 유일한 본문 소스다
+  const viaPassword = !baseAllowed && unlocked;
+  const body = viaPassword ? pwBody?.body ?? '' : bodyText ?? '';
   // 지정값이 있으면 그대로 — 직접 쓴 글이 태그처럼 보이는 문자 때문에 HTML로 오판되던 것 방지
-  const html = showAsHtml({ bodyHtml: bd?.bodyHtml ?? l.bodyHtml }, body);
+  const html = showAsHtml({ bodyHtml: viaPassword ? pwBody?.bodyHtml ?? undefined : bd?.bodyHtml ?? l.bodyHtml }, body);
   // 원본 파일도 분리 저장된 쪽 우선, 없으면 구버전 로그의 내장 값 (v2.0)
   const origFileId = bd?.originalFileId ?? l.originalFileId;
   const origName = bd?.originalName ?? l.originalName;
@@ -329,9 +415,10 @@ html,body{margin:0!important;padding:0!important;height:auto!important;min-heigh
             setE({
               noText: l.noText ?? '', title: l.title, catchphrase: l.catchphrase ?? '', writer: l.writer,
               withText: l.withText, relId: l.relId ?? 'none', date: l.date ?? '',
-              visibility: l.visibility, password: l.password ?? '', listHidden: !!l.listHidden,
+              visibility: l.visibility, listHidden: !!l.listHidden,
             });
-            // 본문·썸네일 교체 상태 초기화 (기본: 현재 것 유지)
+            // 비밀번호·본문·썸네일 교체 상태 초기화 (기본: 현재 것 유지 — 해시는 되돌릴 수 없어 비워 둔다)
+            setPwMode('keep'); setPwNew('');
             setBodyMode('keep'); setEFile(null); setEText(bodyText ?? '');
             const bh = bd?.bodyHtml ?? l.bodyHtml;
             setBodyDisp(bh === undefined ? 'auto' : bh ? 'html' : 'text');
@@ -390,6 +477,15 @@ html,body{margin:0!important;padding:0!important;height:auto!important;min-heigh
                   style={{ color: 'var(--accent)', fontWeight: 600, textDecoration: 'none' }}>
                   ⤓ 원본 파일 ({origName})
                 </a>
+              ) : origFileId.startsWith('private-trpg/') ? (
+                // 비밀번호 보호 로그의 원본 — private-trpg/ 는 직접 못 받으므로 그때그때 signed URL을 받아 연다
+                <span style={{ color: 'var(--accent)', cursor: 'var(--cur-pointer,pointer)', fontWeight: 600 }}
+                  onClick={async () => {
+                    const url = await resolveOriginalUrl(id);
+                    if (url) window.open(url, '_blank', 'noreferrer');
+                  }}>
+                  ⤓ 원본 파일 ({origName})
+                </span>
               ) : (
                 <span style={{ color: 'var(--accent)', cursor: 'var(--cur-pointer,pointer)', fontWeight: 600 }}
                   onClick={async () => {
@@ -440,7 +536,22 @@ html,body{margin:0!important;padding:0!important;height:auto!important;min-heigh
                 { value: 'member', label: '멤버공개' },
                 { value: 'private', label: '나만보기' },
               ]} />
-            <KInput placeholder="열람 비밀번호 (선택)" value={e.password} onChange={ev => setE(s => ({ ...s, password: ev.target.value }))} style={{ flex: 1 }} />
+          </div>
+          {/* 비밀번호 — 해시라 되돌려 채울 수 없으므로 유지/변경/제거 3단 (썸네일·본문과 같은 패턴) */}
+          <label className="k-label" style={{ margin: '4px 0 0' }}>열람 비밀번호</label>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <div className="mini-seg" style={{ justifySelf: 'start' }}>
+              <button className={pwMode === 'keep' ? 'on' : ''} onClick={() => setPwMode('keep')}>
+                {l?.passwordHash ? '현재 유지' : '없음'}
+              </button>
+              <button className={pwMode === 'change' ? 'on' : ''} onClick={() => setPwMode('change')}>설정/변경</button>
+              {l?.passwordHash && (
+                <button className={pwMode === 'remove' ? 'on' : ''} onClick={() => setPwMode('remove')}>제거</button>
+              )}
+            </div>
+            {pwMode === 'change' && (
+              <KInput placeholder="새 비밀번호" value={pwNew} onChange={ev => setPwNew(ev.target.value)} style={{ flex: 1 }} />
+            )}
           </div>
           {/* 목록 표시 — 접근권한과 별개 (v2.0 사용자 요청) */}
           <div style={{ display: 'flex', gap: 8, alignItems: 'center', justifyContent: 'flex-end' }}>

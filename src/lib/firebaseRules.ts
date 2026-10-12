@@ -114,6 +114,16 @@ service firebase.storage {
         && request.resource.size < 20 * 1024 * 1024;
       allow delete: if request.auth != null;
     }
+
+    // TRPG 비밀번호 보호 로그의 대용량 본문 — 직접 읽기를 전면 차단한다.
+    // 꺼낼 때는 /api/trpg/unlock(서버, Admin SDK)만 signed URL을 발급할 수 있다 —
+    // 그래서 비밀번호(또는 관리자 권한)를 통과하지 않으면 파일 주소를 알아도 못 받아 간다.
+    match /private-trpg/{allPaths=**} {
+      allow read: if false;
+      allow write: if request.auth != null
+        && request.resource.size < 20 * 1024 * 1024;
+      allow delete: if request.auth != null;
+    }
   }
 }
 `;

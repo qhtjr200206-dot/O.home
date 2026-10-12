@@ -74,6 +74,11 @@ export interface Backend {
 
   /* ---- 이미지·파일 ---- */
   uploadFile(blob: Blob, ext: string): Promise<string>;   // → 공개 URL
+  /** TRPG 비밀번호 보호 로그의 대용량 본문 전용 — 공개 다운로드 URL을 만들지 않고
+   *  저장소 경로 문자열만 돌려준다. 이 경로는 Storage 규칙상 직접 읽기가 막혀 있고
+   *  /api/trpg/unlock(Admin SDK)만 signed URL을 발급해 꺼낼 수 있다. Firebase에만 구현 —
+   *  지원하지 않는 백엔드는 undefined를 반환해 호출부가 공개 업로드로 폴백하게 한다. */
+  uploadPrivateFile?(blob: Blob, ext: string): Promise<string>;
   /** 저장소에 있는 파일 전부 — 어디서도 참조하지 않는 파일을 찾아 지우는 데 쓴다.
    *  글을 지워도 이미지는 저장소에 남기 때문에(참조가 다른 곳에 남아 있을 수 있어 자동 삭제는 위험)
    *  관리자가 환경설정에서 직접 확인하고 정리한다. */

@@ -397,6 +397,18 @@ export async function createFirebaseBackend(cfg: FirebaseCfg): Promise<Backend> 
       return await stMod.getDownloadURL(r);
     },
 
+    async uploadPrivateFile(blob, ext) {
+      // private-trpg/ 는 Storage 규칙에서 읽기가 전면 차단돼 있다 — 그래서 여기서는
+      // **getDownloadURL을 절대 호출하지 않는다**: 그 토큰 URL은 규칙을 무시하고 누구나
+      // 접근할 수 있게 돼버려서, 애초에 비공개 경로를 쓰는 의미가 없어진다.
+      // 경로 문자열만 돌려주고, 꺼낼 때는 /api/trpg/unlock이 Admin SDK로 signed URL을 발급한다.
+      const path = `private-trpg/${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}.${ext}`;
+      await stMod.uploadBytes(stMod.ref(storage, path), blob, {
+        contentType: blob.type || 'application/octet-stream',
+      });
+      return path;
+    },
+
     async listFiles() {
       // 저장하는 주소가 다운로드 URL이므로 목록도 같은 형태로 돌려줘야 대조가 된다
       const res = await stMod.listAll(stMod.ref(storage, 'ohome'));

@@ -108,6 +108,15 @@ async function putBlobRaw(blob: Blob): Promise<string> {
   return id;
 }
 
+/** TRPG 비밀번호 보호 로그의 대용량 본문 전용 — 공개 URL 대신 저장소 경로만 돌려준다
+ *  (private-trpg/, /api/trpg/unlock만 꺼낼 수 있음). 지원하지 않는 백엔드·로컬 모드에서는
+ *  일반 putBlob으로 폴백 — 보호가 약해지긴 해도 저장 자체가 실패하는 것보다는 낫다. */
+export async function putPrivateBlob(blob: Blob): Promise<string> {
+  const be = isServerMode() ? backend() : null;
+  if (be?.uploadPrivateFile) return be.uploadPrivateFile(blob, extOf(blob));
+  return putBlob(blob);
+}
+
 /** promoteToStorage의 결과 — 안 됐으면 **왜** 안 됐는지까지 알려 준다.
  *  조용히 실패하면 사용자는 「올렸는데 왜 안 보이지」에서 막힌다 (v2.0 사용자 지적). */
 export type PromoteResult =

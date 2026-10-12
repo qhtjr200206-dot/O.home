@@ -72,7 +72,11 @@ export interface TrpgLog {
   thumbColor?: { c1: string; c2?: string }; // 이미지 없을 때 단색/그라데이션
   serifTitle?: boolean;      // 타이틀 폰트 개별 지정 예시 (폰트 라이브러리는 후속)
   visibility: Visibility;
-  password?: string;         // 열람 비밀번호 (선택) — 권한이 없어도 비밀번호로 열람 가능
+  // 열람 비밀번호 (선택) — 권한이 없어도 비밀번호를 아는 사람은 열람 가능.
+  // 평문을 저장하지 않는다 — /api/trpg/unlock(서버, Admin SDK)가 passwordSalt+passwordHash로
+  // 직접 검증하고, 본문도 그 경로로만 내려준다(클라이언트는 절대 해시 비교를 하지 않는다).
+  passwordHash?: string;
+  passwordSalt?: string;
   // 목록 표시 여부 (v2.0 사용자 요청) — 접근권한(누가 열 수 있는지)과는 별개로, 목록에 줄이 뜰지만 정하는
   // 스위치. 나만보기(private)여도 이걸 켜지 않으면 관리자 목록에서 사라지지 않는다 — 반대로 이걸 켜면
   // 전체공개여도 목록에서만 빠지고 직접 링크로는 그대로 열린다. 관리자는 편집모드에서 숨김 표시로 계속 본다
@@ -106,12 +110,28 @@ export interface TrpgLogBody {
   secId?: string;
 }
 
-/** 본문 문서에 적을 열람 권한 — 비밀번호가 걸려 있으면 목록 필터가 예전부터 그래 왔듯 공개로 둔다
- *  (비밀번호는애초에 Firestore 규칙 단계에서 검증할 수 없어 클라이언트 확인용일 뿐이었다) */
-export const bodyVisibility = (l: { visibility: Visibility; password?: string }): Visibility =>
-  l.password ? 'public' : l.visibility;
-
 export const TRPG_BODY_SEED: TrpgLogBody[] = [];
+
+/** salt+password를 SHA-256으로 해싱 — 브라우저(`'use client'` 쪽)와 Vercel 서버리스
+ *  라우트(Node 20+) 양쪽에 전역으로 있는 Web Crypto(`crypto.subtle`)를 그대로 쓴다.
+ *  같은 함수를 양쪽에서 import해 쓰므로 해시 방식이 어긋날 일이 없다. */
+export async function sha256Hex(s: string): Promise<string> {
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(s));
+  return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+/** 새 비밀번호 salt (16바이트 랜덤, 브라우저 전용) */
+export function genSalt(): string {
+  return Array.from(crypto.getRandomValues(new Uint8Array(16))).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+/** 비밀번호 입력값 → {passwordHash, passwordSalt} (비우면 undefined — 비밀번호 제거/없음) */
+export async function hashNewPassword(plain: string): Promise<{ passwordHash?: string; passwordSalt?: string }> {
+  const p = plain.trim();
+  if (!p) return {};
+  const passwordSalt = genSalt();
+  return { passwordHash: await sha256Hex(passwordSalt + p), passwordSalt };
+}
 
 /** № 자리 표시 — 직접 입력한 텍스트가 있으면 그대로, 없으면 자동 № 0XX */
 export const logNo = (l: TrpgLog) => l.noText || `№ ${String(l.no).padStart(3, '0')}`;
@@ -143,13 +163,18 @@ export async function decodeLogText(f: File): Promise<string> {
  * 본문은 텍스트라 문서에 그대로 담는 편이 안전하다 — 다만 Firestore 문서 상한이 1MB라
  * 아주 큰 로그만 파일로 보관한다(그 경우에는 CORS 설정이 필요하다).
  */
-export async function saveLogBody(text: string): Promise<{ body: string; bodyId?: string }> {
+export async function saveLogBody(
+  text: string, opts?: { private?: boolean },
+): Promise<{ body: string; bodyId?: string }> {
   if (!text) return { body: '' };
   const { isServerMode } = await import('./backend');
-  const { putBlob } = await import('./blobStore');
+  const { putBlob, putPrivateBlob } = await import('./blobStore');
   const bytes = new TextEncoder().encode(text).length;
   if (isServerMode() && bytes < 700_000) return { body: text };
-  return { body: '', bodyId: await putBlob(new Blob([text], { type: 'text/plain' })) };
+  const blob = new Blob([text], { type: 'text/plain' });
+  // 비밀번호가 걸린 로그의 큰 본문은 공개 Storage 경로가 아니라 private-trpg/ 로 올린다 —
+  // 그래야 비밀번호를 몰라도 파일 주소만으로 읽히는 구멍이 안 생긴다 (/api/trpg/unlock 참고)
+  return { body: '', bodyId: await (opts?.private ? putPrivateBlob(blob) : putBlob(blob)) };
 }
 
 /* ---------- TRPG 도토리 (4.15) — 시나리오 위시리스트 ---------- */

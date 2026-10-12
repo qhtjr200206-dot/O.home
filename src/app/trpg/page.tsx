@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/auth';
 import { useSectionParam, filterSection, sectionSetter, secStamp } from '@/lib/sectionStore';
 import { useLocalList, newId } from '@/lib/postStore';
-import { TrpgLog, TRPG_SEED, TrpgLogBody, TRPG_BODY_SEED, bodyVisibility, decodeLogText, logNo, saveLogBody } from '@/lib/galleryStore';
+import { TrpgLog, TRPG_SEED, TrpgLogBody, TRPG_BODY_SEED, decodeLogText, logNo, saveLogBody, hashNewPassword } from '@/lib/galleryStore';
 import { Relation, REL_SEED } from '@/lib/charStore';
 import { SearchBar, KInput, KTextarea, KRadio, KSelect, KDate, Pager } from '@/components/ui/Kit';
 import { Modal } from '@/components/ui/Modal';
@@ -188,6 +188,7 @@ function TrpgPageInner() {
     const id = newId();
     // 파일이 있으면 등록 시점에 직접 읽음 — 읽기 완료 전에 ADD를 눌러도 본문이 비지 않음
     const bodyText = nFile ? await decodeText(nFile) : nBody;
+    const pw = await hashNewPassword(nPw);   // 평문은 여기서 끝 — 저장은 salt+hash만
     const log: TrpgLog = {
       id,
       no: Math.max(0, ...logs.map(l => l.no)) + 1, // 내부 순번 (정렬용)
@@ -197,7 +198,7 @@ function TrpgPageInner() {
       relId: nRel === 'none' ? undefined : nRel,
       date: nDate || undefined, ph: 'cool',
       visibility: nVis,
-      password: nPw.trim() || undefined,
+      ...pw,
       listHidden: nListHidden,
       // 썸네일: 이미지(선택) 또는 단색/그라데이션
       thumbId: nThumb ? await putBlob(nThumb) : undefined,
@@ -208,12 +209,13 @@ function TrpgPageInner() {
     // 목록에 뜨는 순간 함께 새어 나간다. 이 문서의 열람 권한은 로그의 실제 visibility를 그대로 따른다
     const body: TrpgLogBody = {
       id,
-      // 본문 저장 위치는 saveLogBody가 정한다 (서버면 문서에 직접 · 로컬이거나 아주 크면 파일로)
-      ...(await saveLogBody(bodyText)),
+      // 본문 저장 위치는 saveLogBody가 정한다 (서버면 문서에 직접 · 로컬이거나 아주 크면 파일로).
+      // 비밀번호가 걸린 로그는 큰 본문도 private-trpg/ 로 — /api/trpg/unlock만 꺼낼 수 있다
+      ...(await saveLogBody(bodyText, { private: !!pw.passwordHash })),
       // 업로드 원본 파일은 그대로 보관 (4.3 — 백업 목적, IndexedDB → R2 이전 예정)
       originalFileId: nFile ? await putBlob(nFile) : undefined,
       originalName: nFile?.name,
-      visibility: bodyVisibility(log),
+      visibility: log.visibility,
       ...secStamp(sec.id),   // 소속 (v2.0) — 본문 문서도 비공개 판정을 받게
     };
     setLogs([log, ...logs]);
@@ -255,7 +257,7 @@ function TrpgPageInner() {
         {l.catchphrase && <div className="sc-catch">{l.catchphrase}</div>}
         {/* 나만보기 등도 이제 목록엔 뜨므로(v2.0), 못 여는 로그는 왜 못 여는지 표시 */}
         {!canOpen(l) && (
-          <div className="row"><b>열람</b> {l.password ? '비밀번호 필요' : '권한 없음'}</div>
+          <div className="row"><b>열람</b> {l.passwordHash ? '비밀번호 필요' : '권한 없음'}</div>
         )}
         {l.writer && <div className="row"><b>라이터</b> {l.writer}</div>}
         {l.withText && <div className="row"><b>동행</b> {l.withText}</div>}
@@ -304,7 +306,7 @@ function TrpgPageInner() {
                       {/* 편집모드에서만 — 목록 숨김이라 관리자에게만 예외로 보이는 중 (v2.0) */}
                       {editOn && l.listHidden && <span className="pill" style={{ marginLeft: 6 }}>숨김</span>}
                       {/* 나만보기 등도 목록엔 뜨므로(v2.0) — 못 여는 로그는 왜 못 여는지 표시 */}
-                      {!canOpen(l) && <span className="pill" style={{ marginLeft: 6 }}>{l.password ? '비밀번호 필요' : '비공개'}</span>}
+                      {!canOpen(l) && <span className="pill" style={{ marginLeft: 6 }}>{l.passwordHash ? '비밀번호 필요' : '비공개'}</span>}
                       <small>{[l.writer, l.withText].filter(Boolean).join(' · ')}{l.date ? ` · ${l.date.replace(/-/g, '.')}` : ''}</small>
                     </div>
                   </div>
