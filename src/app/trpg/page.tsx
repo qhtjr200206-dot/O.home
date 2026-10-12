@@ -11,7 +11,7 @@ import { Relation, REL_SEED } from '@/lib/charStore';
 import { SearchBar, KInput, KTextarea, KRadio, KSelect, KDate, Pager } from '@/components/ui/Kit';
 import { Modal } from '@/components/ui/Modal';
 import { EditableDesc, PageTitle } from '@/components/ui/PageText';
-import { putBlob } from '@/lib/blobStore';
+import { putBlob, putPrivateBlob } from '@/lib/blobStore';
 import { ColorField } from '@/components/ui/ColorField';
 import { CropEditor, CroppedBlobImg, CropValue, CropImg } from '@/components/ui/CropEditor';
 import { useToast } from '@/components/ui/Toast';
@@ -210,10 +210,13 @@ function TrpgPageInner() {
     const body: TrpgLogBody = {
       id,
       // 본문 저장 위치는 saveLogBody가 정한다 (서버면 문서에 직접 · 로컬이거나 아주 크면 파일로).
-      // 비밀번호가 걸린 로그는 큰 본문도 private-trpg/ 로 — /api/trpg/unlock만 꺼낼 수 있다
-      ...(await saveLogBody(bodyText, { private: !!pw.passwordHash })),
+      // 비밀번호가 걸린(+공개가 아닌) 로그는 큰 본문·원본 파일 모두 private-trpg/ 로 —
+      // 비밀번호를 몰라도 파일 주소만으로 읽히는 구멍이 안 생기게 한다 (/api/trpg/unlock 참고)
+      ...(await saveLogBody(bodyText, { private: !!pw.passwordHash && nVis !== 'public' })),
       // 업로드 원본 파일은 그대로 보관 (4.3 — 백업 목적, IndexedDB → R2 이전 예정)
-      originalFileId: nFile ? await putBlob(nFile) : undefined,
+      originalFileId: nFile
+        ? await (pw.passwordHash && nVis !== 'public' ? putPrivateBlob(nFile) : putBlob(nFile))
+        : undefined,
       originalName: nFile?.name,
       visibility: log.visibility,
       ...secStamp(sec.id),   // 소속 (v2.0) — 본문 문서도 비공개 판정을 받게
