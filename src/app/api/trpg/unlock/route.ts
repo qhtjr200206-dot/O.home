@@ -49,9 +49,14 @@ export async function POST(req: NextRequest) {
   }
   const db = getFirestore();
 
+  // 이 앱은 실제 필드를 전부 data 아래에 한 번 감싸서 저장한다(firebaseBackend.ts의 syncList:
+  // { data: item, authorId, visibility, sort, ... }) — 클라이언트는 fetchList가 data를 다시
+  // 풀어서 쓰지만, 여기서는 Admin SDK로 문서를 직접 읽으므로 그 풀어주는 과정을 직접 해야 한다.
+  // (최상위 visibility는 listHidden 등에 따라 느슨해질 수 있어 실제 접근권한 판정에는 쓰지 않는다 —
+  // 진짜 값은 항상 data.visibility 쪽이다)
   const logSnap = await db.collection('trpg_logs').doc(id).get();
   if (!logSnap.exists) return NextResponse.json({ error: '찾을 수 없습니다' }, { status: 404 });
-  const log = logSnap.data() as LogDoc;
+  const log = (logSnap.data()?.data ?? {}) as LogDoc;
 
   // 비밀번호 없이 통과하는 경로 — 관리자 / member 로그인 회원 (Firestore 규칙과 같은 판정)
   let allowedWithoutPassword = log.visibility === 'public';
@@ -79,7 +84,7 @@ export async function POST(req: NextRequest) {
   }
 
   const bodySnap = await db.collection('trpg_log_bodies').doc(id).get();
-  const bd = (bodySnap.exists ? bodySnap.data() : {}) as BodyDoc;
+  const bd = (bodySnap.exists ? bodySnap.data()?.data : {}) as BodyDoc;
 
   // want:'original' — 백업용 원본 파일(원본 바이트) 요청. 그 외(기본)는 렌더용 본문 텍스트.
   const ref = payload.want === 'original' ? bd.originalFileId : bd.bodyId;
