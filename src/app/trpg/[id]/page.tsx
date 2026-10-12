@@ -135,6 +135,9 @@ export default function TrpgDetailPage() {
       const raw = sessionStorage.getItem(`trpg-unlock:${id}`);
       if (!raw) return;
       const saved = JSON.parse(raw) as { body: string; bodyHtml: boolean | null };
+      // 빈 본문은 캐시하지 않는다 — 과거 실패(버그·오류)의 흔적일 수 있어, 그걸 "성공"으로
+      // 믿고 계속 띄우면 고쳐진 뒤에도 같은 빈 화면이 세션 내내 반복된다
+      if (!saved.body) { sessionStorage.removeItem(`trpg-unlock:${id}`); return; }
       setPwBody(saved);
       setUnlocked(true);
     } catch { /* 무시 */ }
@@ -154,6 +157,9 @@ export default function TrpgDetailPage() {
     const r = await callUnlock(id, { password: pwTry });
     setPwBusy(false);
     if (!r.ok) { toast(r.error); return; }
+    // 비밀번호는 맞았는데 본문이 비어 오면 성공으로 치지 않는다 — 비밀번호 화면이 그대로 남아야
+    // "통과는 됐지만 뭔가 잘못됐다"는 걸 알 수 있다(캐시도 안 해서 다시 시도할 수 있다)
+    if (!r.body) { toast('비밀번호는 맞았지만 본문을 가져오지 못했습니다 — 다시 시도해 주세요'); return; }
     setPwBody({ body: r.body, bodyHtml: r.bodyHtml });
     setUnlocked(true);
     try { sessionStorage.setItem(`trpg-unlock:${id}`, JSON.stringify({ body: r.body, bodyHtml: r.bodyHtml })); } catch { /* 무시 */ }
