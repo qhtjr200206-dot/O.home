@@ -154,7 +154,7 @@ export default function TrpgDetailPage() {
   const tryUnlock = async () => {
     if (!l?.passwordHash || pwBusy) return;
     setPwBusy(true);
-    const r = await callUnlock(id, { password: pwTry });
+    const r = await callUnlock(id, { password: pwTry.trim() });
     setPwBusy(false);
     if (!r.ok) { toast(r.error); return; }
     // 비밀번호는 맞았는데 본문이 비어 오면 성공으로 치지 않는다 — 비밀번호 화면이 그대로 남아야

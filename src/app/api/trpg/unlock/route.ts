@@ -76,9 +76,11 @@ export async function POST(req: NextRequest) {
   if (!allowedWithoutPassword) {
     const password = payload.password;
     if (!log.passwordHash || !log.passwordSalt) {
+      console.error('[trpg/unlock] 403 — 이 로그에 passwordHash/passwordSalt가 없음', { id });
       return NextResponse.json({ error: '열람 권한이 없습니다' }, { status: 403 });
     }
     if (!password || (await sha256Hex(log.passwordSalt + password)) !== log.passwordHash) {
+      console.error('[trpg/unlock] 401 — 비밀번호 불일치', { id, gotPassword: !!password });
       return NextResponse.json({ error: '비밀번호가 올바르지 않습니다' }, { status: 401 });
     }
   }
