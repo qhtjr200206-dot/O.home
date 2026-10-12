@@ -96,19 +96,16 @@ export async function POST(req: NextRequest) {
   if (payload.want !== 'original' && bd.body) return NextResponse.json({ body: bd.body, bodyHtml });
   if (!ref) return NextResponse.json({ body: '', bodyHtml, originalName });
 
+  // 서버가 큰 본문을 받아서 응답에 그대로 실어 보내면 Vercel 함수 응답 용량 한도(약 4.5MB)에
+  // 걸린다 — 비공개(private-trpg/)든 기존 공개 URL이든, 바이트는 항상 브라우저가 Storage에서
+  // 직접 받게 하고 서버는 "어디서 받으면 되는지"만 알려준다 (버킷 CORS는 이미 열어 둠).
   if (/^https?:/.test(ref)) {
-    if (payload.want === 'original') return NextResponse.json({ originalUrl: ref, originalName });
-    // 기존 공개 로그(비밀번호 없이 저장된 큰 본문) — 서버가 대신 받아 본문만 돌려준다
-    try {
-      const res = await fetch(ref);
-      if (!res.ok) throw new Error(String(res.status));
-      return NextResponse.json({ body: await res.text(), bodyHtml });
-    } catch {
-      return NextResponse.json({ error: '본문을 불러오지 못했습니다' }, { status: 502 });
-    }
+    return payload.want === 'original'
+      ? NextResponse.json({ originalUrl: ref, originalName })
+      : NextResponse.json({ signedUrl: ref, bodyHtml });
   }
 
-  // private-trpg/ 경로 — 10분짜리 signed URL만 발급. 바이트는 브라우저가 Storage에서 직접 받는다
+  // private-trpg/ 경로 — 10분짜리 signed URL만 발급
   try {
     const [signedUrl] = await getStorage().bucket().file(ref).getSignedUrl({
       action: 'read',
