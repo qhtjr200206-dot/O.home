@@ -32,14 +32,20 @@ export async function generateMetadata(): Promise<Metadata> {
   const { title, subtitle, crawlDesc, favicon } = await siteMeta();
   // 크롤링 설명 문구 (v2.0 사용자 요청) — 환경설정에서 직접 지정 > 서브타이틀 > 기본 문구
   const description = crawlDesc?.trim() || subtitle?.trim() || '자캐놀이용 개인 아카이브';
+  // 미리보기 이미지 주소를 절대 주소로 만들 기준 — Vercel이 넣어 주는 대표(커스텀) 도메인
+  const host = process.env.NEXT_PUBLIC_SITE_URL
+    || (process.env.VERCEL_PROJECT_PRODUCTION_URL ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}` : undefined);
   return {
+    ...(host ? { metadataBase: new URL(host) } : {}),
     title,
     description,
     // 탭 아이콘 (v2.0 사용자 요청) — 지정했으면 기본 favicon.ico 대신 그것을 쓴다.
     // 지정이 없으면 icons를 아예 넣지 않아 Next의 기본 파일 처리를 그대로 둔다
     ...(favicon ? { icons: { icon: favicon } } : {}),
     openGraph: { title, description, type: 'website' },
-    twitter: { card: 'summary', title, description },
+    // 미리보기 이미지는 파일 규칙(app/opengraph-image.jpg · twitter-image.jpg)으로 자동으로 붙는다 (v2.1 사용자 요청)
+    // — 큰 이미지 카드로 보이게
+    twitter: { card: 'summary_large_image', title, description },
   };
 }
 
