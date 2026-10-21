@@ -17,7 +17,7 @@ export interface SiteMeta { title: string; subtitle?: string; crawlDesc?: string
 const httpOnly = (v?: string) => (v && /^https?:\/\//.test(v) ? v : undefined);
 
 const SETTING_KEY = 'ohome.site.v1';
-const FALLBACK: SiteMeta = { title: 'O.HOME' };
+const FALLBACK: SiteMeta = { title: 'CHUUNS' };
 
 type Cfg =
   | { kind: 'firebase'; projectId: string; apiKey: string; databaseId?: string }

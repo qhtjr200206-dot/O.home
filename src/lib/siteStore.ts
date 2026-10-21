@@ -20,8 +20,8 @@ export interface SiteSettings {
 }
 
 export const DEFAULT_SITE_SETTINGS: SiteSettings = {
-  // 초기 타이틀 = 프로젝트 이름 O.HOME (v1.9 사용자 확정 — 초기화하면 이 값으로 돌아감)
-  title: 'O.HOME', subtitle: 'PERSONAL ARCHIVE', align: 'left',
+  // 초기 타이틀 = CHUUNS (사용자 요청으로 O.HOME에서 변경 — 초기화하면 이 값으로 돌아감)
+  title: 'CHUUNS', subtitle: 'PERSONAL ARCHIVE', align: 'left',
 };
 
 const KEY = 'ohome.site.v1';
