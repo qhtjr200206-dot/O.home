@@ -312,6 +312,8 @@ export default function RelDetailPage() {
   const [mCharId, setMCharId] = useState('');
   const [mQuery, setMQuery] = useState('');   // 기존 캐릭터 검색어
   const [mQuote, setMQuote] = useState('');
+  // 다인관 멤버 한마디 수정 (v2.1 사용자 요청 — 추가할 때만 넣을 수 있어서, 비워 둔 멤버는 고칠 방법이 없었다)
+  const [quoteEdit, setQuoteEdit] = useState<{ charId: string; text: string } | null>(null);
   const [mName, setMName] = useState('');
   const [mSub, setMSub] = useState('');
   const [mColor, setMColor] = useState('#8a7f70');
@@ -728,6 +730,21 @@ export default function RelDetailPage() {
     });
   };
 
+  /** 다인관 멤버 순서 이동 (v2.1 사용자 요청) — 등록 순서가 곧 표시 순서라 바꿀 방법이 없었다 */
+  const moveMember = (idx: number, dir: -1 | 1) => {
+    const to = idx + dir;
+    if (to < 0 || to >= rel.members.length) return;
+    const next = [...rel.members];
+    [next[idx], next[to]] = [next[to], next[idx]];
+    updateRel({ members: next });
+  };
+  const saveQuote = () => {
+    if (!quoteEdit) return;
+    updateRel({ members: rel.members.map(m => (m.charId === quoteEdit.charId ? { ...m, quote: quoteEdit.text.trim() } : m)) });
+    setQuoteEdit(null);
+    toast('한마디가 저장되었습니다');
+  };
+
   const removeMember = (cid: string) => {
     const c = charOf(cid);
     const name = c?.name ?? '멤버';
@@ -991,7 +1008,7 @@ export default function RelDetailPage() {
         /* 다인 자관 — 프로토타입 multi-body: 좌 멤버 리스트(430px) + 우 그룹 일러 */
         <div className="multi-body" style={{ fontFamily: familyOf(auBodyFont) }}>
           <div className="panel flush" style={{ padding: '6px 0' }}>
-            {rel.members.map(m => {
+            {rel.members.map((m, mi) => {
               const c = charOf(m.charId);
               if (!c) return null;
               const unreg = auUnregOf(m.charId);
@@ -1024,7 +1041,14 @@ export default function RelDetailPage() {
                     {(c.colors ?? []).slice(0, 3).map(p => <i key={p.hex + p.label} style={{ background: p.hex }} />)}
                   </div>
                   {isAdmin && (
-                    <span className="rm" onClick={e => { e.stopPropagation(); removeMember(m.charId); }}>제거</span>
+                    <div className="m-admin" onClick={e => e.stopPropagation()}>
+                      <span className="mv">
+                        <button data-tip="위로" disabled={mi === 0} onClick={() => moveMember(mi, -1)}>▲</button>
+                        <button data-tip="아래로" disabled={mi === rel.members.length - 1} onClick={() => moveMember(mi, 1)}>▼</button>
+                      </span>
+                      <span className="ed" onClick={() => setQuoteEdit({ charId: m.charId, text: m.quote ?? '' })}>한마디</span>
+                      <span className="rm" onClick={() => removeMember(m.charId)}>제거</span>
+                    </div>
                   )}
                 </div>
               );
@@ -1300,6 +1324,19 @@ export default function RelDetailPage() {
         )}
       </div>
       )}
+
+      {/* ---------- 멤버 한마디 수정 모달 (v2.1) ---------- */}
+      <Modal open={!!quoteEdit} onClose={() => setQuoteEdit(null)} small
+        title={`한마디 — ${quoteEdit ? (charOf(quoteEdit.charId)?.name ?? '') : ''}`}
+        desc="멤버 리스트에서 이름 아래에 보이는 한 줄 대사입니다 — 비우면 표시하지 않습니다"
+        actions={<>
+          <button className="btn btn-ghost" onClick={() => setQuoteEdit(null)}>CANCEL</button>
+          <button className="btn btn-dark" onClick={saveQuote}>SAVE</button>
+        </>}>
+        <KInput autoFocus placeholder="한마디" value={quoteEdit?.text ?? ''}
+          onChange={e => setQuoteEdit(q => (q ? { ...q, text: e.target.value } : q))}
+          onKeyDown={e => { if (e.key === 'Enter' && !e.nativeEvent.isComposing) saveQuote(); }} />
+      </Modal>
 
       {/* ---------- 멤버 추가 모달 ---------- */}
       <Modal open={memberOpen} onClose={() => setMemberOpen(false)} small title="멤버 추가"

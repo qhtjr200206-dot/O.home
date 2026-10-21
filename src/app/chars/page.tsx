@@ -10,6 +10,7 @@ import { backend, isServerMode } from '@/lib/backend';
 import { useSectionParam, filterSection, sectionSetter, secQuery } from '@/lib/sectionStore';
 import { SearchBar, FitText } from '@/components/ui/Kit';
 import { CroppedBlobImg } from '@/components/ui/CropEditor';
+import { StarField } from '@/components/ui/StarField';
 
 import { useToast } from '@/components/ui/Toast';
 import { EditableDesc, PageTitle } from '@/components/ui/PageText';
@@ -54,7 +55,8 @@ function CharsInner() {
   const sort = useCardSort(visible, next => setChars(mergeOrder(chars, next)), editOn && isAdmin);
 
   return (
-    <section className="page">
+    <section className="page cosmic cosmic-list">
+      <StarField />
       <div className="page-head">
         <PageTitle>{sec.id === 'main' ? 'CHARACTERS' : sec.name}</PageTitle>
         <EditableDesc k="chars-desc" def="운영자의 자캐 목록 · 3:4 두상 썸네일 · 클릭 시 프로필로 이동" />
@@ -96,5 +98,5 @@ function CharsInner() {
 
 export default function CharsPage() {
   // useSearchParams는 Suspense 경계 필요 (Next App Router)
-  return <Suspense fallback={<section className="page" />}><CharsInner /></Suspense>;
+  return <Suspense fallback={<section className="page cosmic"><StarField /></section>}><CharsInner /></Suspense>;
 }

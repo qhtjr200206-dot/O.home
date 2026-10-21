@@ -7,6 +7,7 @@ import { useLocalList } from '@/lib/postStore';
 import { TrpgChar, TCHAR_SEED, faceCrop } from '@/lib/tcharStore';
 import { SearchBar } from '@/components/ui/Kit';
 import { CroppedBlobImg } from '@/components/ui/CropEditor';
+import { StarField } from '@/components/ui/StarField';
 import { useConfirmDelete } from '@/components/ui/Modal';
 import { EditableDesc, PageTitle } from '@/components/ui/PageText';
 import { useMainStore } from '@/lib/mainStore';
@@ -30,10 +31,11 @@ export default function TCharsPage() {
   // 편집모드 카드 드래그 정렬 (v1.9) — 훅이므로 early return보다 먼저
   const sort = useCardSort(shown, next => setTchars(mergeOrder(tchars, next)), editOn && isAdmin);
 
-  if (!loaded) return <section className="page" />;
+  if (!loaded) return <section className="page cosmic"><StarField /></section>;
 
   return (
-    <section className="page">
+    <section className="page cosmic cosmic-list">
+      <StarField />
       <div className="page-head">
         <PageTitle>TRPG CHARACTERS</PageTitle>
         <EditableDesc k="tchars-desc" def="1:1 인장 카드 — 클릭하면 표정과 소개를 볼 수 있습니다" />

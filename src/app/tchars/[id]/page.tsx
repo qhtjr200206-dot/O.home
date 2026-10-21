@@ -7,6 +7,7 @@ import { useLocalList } from '@/lib/postStore';
 import { TrpgChar, TCHAR_SEED, faceCrop } from '@/lib/tcharStore';
 import { sanitizeHtml } from '@/lib/sanitize';
 import { CroppedBlobImg } from '@/components/ui/CropEditor';
+import { StarField } from '@/components/ui/StarField';
 import { Lightbox } from '@/components/ui/Lightbox';
 import { ConfirmModal } from '@/components/ui/Modal';
 import { PageTitle, EditableDesc } from '@/components/ui/PageText';
@@ -31,10 +32,11 @@ export default function TCharDetailPage() {
   const [lbOpen, setLbOpen] = useState(false);
 
   const c = tchars.find(x => x.id === id);
-  if (!loaded) return <section className="page" />;
+  if (!loaded) return <section className="page cosmic"><StarField /></section>;
   if (!c) {
     return (
-      <section className="page">
+      <section className="page cosmic">
+        <StarField />
         <div className="page-head"><PageTitle>TRPG CHARACTERS</PageTitle><p>캐릭터를 찾을 수 없습니다</p></div>
       </section>
     );
@@ -43,7 +45,8 @@ export default function TCharDetailPage() {
   const face = c.faces[Math.min(faceIdx, c.faces.length - 1)] ?? c.faces[0];
 
   return (
-    <section className="page">
+    <section className="page cosmic page-tchar-detail">
+      <StarField />
       <div className="page-head">
         <PageTitle>TRPG CHARACTERS</PageTitle>
         <EditableDesc k="tchars-detail-desc" def="표정 썸네일을 누르면 이미지가 전환됩니다" />
@@ -55,7 +58,7 @@ export default function TCharDetailPage() {
 
       <div className="tcd-layout">
         {/* 좌 — 현재 표정 원본 (스탠딩이면 전신), 클릭 시 확대 */}
-        <div className="panel" style={{ padding: 14 }}>
+        <div className="panel tcd-art" style={{ padding: 14 }}>
           {c.imgMode === 'standing' ? (
             /* 스탠딩 인장 — 전신 원본 비율 그대로 (클릭 확대) */
             <div className="tcd-img" style={{
@@ -87,15 +90,15 @@ export default function TCharDetailPage() {
         </div>
 
         {/* 우 — 정보 + 설명 */}
-        <div className="panel" style={{ padding: 24 }}>
-          <h2 style={{ fontSize: 22, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
+        <div className="panel tcd-info" style={{ padding: 24 }}>
+          <h2 className="tcd-name" style={{ fontSize: 22, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
             {c.name}
             {c.role && <span className="pill dark">{c.role}</span>}
             {face?.label && c.faces.length > 1 && (
               <span className="pill" style={{ marginLeft: 'auto' }}>{face.label}</span>
             )}
           </h2>
-          <div style={{ display: 'grid', gap: 7, padding: '12px 0', borderBottom: '1px dashed var(--line)', fontSize: 12.5 }}>
+          <div className="tcd-meta" style={{ display: 'grid', gap: 7, padding: '12px 0', borderBottom: '1px dashed var(--line)', fontSize: 12.5 }}>
             {c.scenario && (
               <div style={{ display: 'flex', gap: 10 }}>
                 <b style={{ minWidth: 70, color: 'var(--faint)', fontWeight: 600 }}>Scenario</b>{c.scenario}

@@ -14,6 +14,7 @@ import { useTheme } from '@/lib/ThemeProvider';
 import { createPortal } from 'react-dom';
 import { BlobImg, useBlobUrl } from '@/lib/blobStore';
 import { CroppedBlobImg, CropEditor, type CropValue } from '@/components/ui/CropEditor';
+import { StarField } from '@/components/ui/StarField';
 
 import { EditableDesc, PageTitle } from '@/components/ui/PageText';
 import { useSectionTitle } from '@/lib/sectionStore';
@@ -97,24 +98,27 @@ function CharDetailInner() {
     [loaded, eff],
   );
 
-  if (!loaded) return <section className="page" />;
+  if (!loaded) return <section className="page cosmic"><StarField /></section>;
   if (!ch || !eff) {
     return (
-      <section className="page">
+      <section className="page cosmic">
+        <StarField />
         <div className="page-head"><PageTitle href={tt.href}>{tt.title}</PageTitle><p>캐릭터를 찾을 수 없습니다</p></div>
       </section>
     );
   }
   if (ch.visibility === 'private' && !isAdmin) {
     return (
-      <section className="page">
+      <section className="page cosmic">
+        <StarField />
         <div className="page-head"><PageTitle href={tt.href}>{tt.title}</PageTitle><p>비공개 캐릭터입니다</p></div>
       </section>
     );
   }
   if (ch.visibility === 'member' && !user) {
     return (
-      <section className="page">
+      <section className="page cosmic">
+        <StarField />
         <div className="page-head"><PageTitle href={tt.href}>{tt.title}</PageTitle><p>멤버공개 — 로그인 후 열람할 수 있습니다</p></div>
       </section>
     );
@@ -131,7 +135,8 @@ function CharDetailInner() {
   const editHref = auKey ? `/chars/${ch.id}/edit?au=${encodeURIComponent(auKey)}` : `/chars/${ch.id}/edit`;
 
   return (
-    <section className="page page-char-detail">
+    <section className="page page-char-detail cosmic">
+      <StarField />
       <div className="page-head">
         {/* 제목 자리는 메뉴 이름 — 클릭 시 목록 복귀. 캐릭터 이름은 우측 프로필 패널에 크게 표시 */}
         <PageTitle href={tt.href}>{tt.title}</PageTitle>
@@ -249,13 +254,13 @@ function CharDetailInner() {
         <div className="panel profile-info" ref={infoRef} style={{ fontFamily: familyOf(eff.bodyFontId) }}>
           {/* 크기는 캐릭터마다 직접 정한다 (등록·수정의 「이름 크기」) — 자동으로 줄이면
               이름 길이에 따라 어중간해져서, 정한 크기를 그대로 쓴다 (v2.0 사용자 확정) */}
-          <div style={{
+          <div className="cd-name" style={{
             fontFamily: familyOf(eff.fontId) ?? 'var(--serif)', fontSize: eff.nameSize ?? 38,
             // 굵기는 끌 수 있다 (v2.0 사용자 요청 — 폰트에 따라 볼드가 안 어울린다). 기본은 지금처럼 굵게
             fontWeight: (eff.nameBold ?? true) ? 600 : 400,
             letterSpacing: '.2em', lineHeight: 1.1,
           }}>{eff.name}</div>
-          <div className="sub" style={{ marginBottom: 14 }}>{eff.sub}</div>
+          <div className="sub cd-sub" style={{ marginBottom: 14 }}>{eff.sub}</div>
 
           {tab === 'basic' ? (
             <>
@@ -336,5 +341,5 @@ function ArtCropModal({ fileRef, ratio, crop, onClose, onApply }: {
 
 export default function CharDetailPage() {
   // useSearchParams는 Suspense 경계 필요 (Next App Router)
-  return <Suspense fallback={<section className="page" />}><CharDetailInner /></Suspense>;
+  return <Suspense fallback={<section className="page cosmic"><StarField /></section>}><CharDetailInner /></Suspense>;
 }
