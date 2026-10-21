@@ -7,7 +7,7 @@
  *  더 늘리려면 Vercel 환경변수 NEXT_PUBLIC_LOG_IMPORT_ORIGINS 에 쉼표로 적는다 */
 const DEFAULT_ORIGINS = [
   'https://play.chuuns.com', 'http://play.chuuns.com',
-  'http://gnight.dothome.co.kr', 'https://gnight.dothome.co.kr',
+  'https://chuun.dothome.co.kr', 'http://chuun.dothome.co.kr',
 ];
 
 export function allowedImportOrigins(): string[] {
