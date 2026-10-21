@@ -15,6 +15,8 @@ import { useBlobUrl } from '@/lib/blobStore';
 import { refreshPage } from '@/lib/pageRefresh';
 import { useToast } from '@/components/ui/Toast';
 import { KToggle } from '@/components/ui/Kit';
+import { useTheme } from '@/lib/ThemeProvider';
+import { setViewerMode, useViewerMode } from '@/lib/viewerMode';
 import {
   Notif, NotifType, NOTIF_EVENT, NOTIF_TYPE_LABEL,
   readNotifs, markRead, markAllRead, clearReadNotifs, notifSettings, setNotifSetting, syncNotifs, selfTestNotif,
@@ -30,6 +32,10 @@ const BellIcon = () => (
 
 export function TopBar() {
   const { user, isAdmin, logout } = useAuth();
+  // 보는 사람별 다크모드 (v2.1 사용자 요청) — 이 브라우저에서만 다크/라이트를 고정
+  const { isLight } = useTheme();
+  const viewerMode = useViewerMode();
+  const toggleDark = () => setViewerMode(isLight ? 'dark' : 'light');
   const { editOn, editAvailable, gridOn, setGridOn, toggleEdit, requestExit, guardNav } = useMainStore();
   const router = useRouter();
   const pathname = usePathname();
@@ -285,6 +291,13 @@ export function TopBar() {
           </div>
           <div className={`user-menu ${menuOpen ? 'open' : ''}`}>
             <button onClick={() => { setMenuOpen(false); nav('/mypage'); }}>정보수정</button>
+            <div className="dark-row" onClick={e => e.stopPropagation()}>
+              <span>다크모드</span>
+              <KToggle checked={!isLight} onChange={() => toggleDark()} />
+            </div>
+            {viewerMode && (
+              <button onClick={() => { setMenuOpen(false); setViewerMode(null); }}>사이트 기본 테마로</button>
+            )}
             {isAdmin && (
               <>
                 {/* 편집모드 항목은 지원 페이지에서만 노출 (편집 중이면 끄기 위해 항상 표시) */}
@@ -300,7 +313,13 @@ export function TopBar() {
           </div>
         </div>
       ) : (
-        <button className="login-link" onClick={() => nav('/login')}>로그인</button>
+        <>
+          {/* 비로그인 방문자도 다크모드를 고를 수 있게 (v2.1) */}
+          <button className="dark-btn" data-tip={isLight ? '다크모드 켜기' : '다크모드 끄기'} onClick={toggleDark}>
+            {isLight ? '☾' : '☀'}
+          </button>
+          <button className="login-link" onClick={() => nav('/login')}>로그인</button>
+        </>
       )}
     </header>
   );

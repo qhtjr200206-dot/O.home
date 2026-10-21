@@ -12,6 +12,8 @@ import {
 import { newId } from './postStore';
 import { getBlob } from './blobStore';
 import { getRawSetting, setSetting } from './settingStore';
+import { usePathname } from 'next/navigation';
+import { useViewerMode, VIEWER_CSS_KEY } from './viewerMode';
 
 /** 페이지 배경 그라데이션 (자관별 지정, v2.0) — 색 2개 + 각도 */
 export interface PageBg { g1: string; g2: string; angle: number }
@@ -36,6 +38,10 @@ interface ThemeCtx {
   savePreset: (name: string) => void;          // 현재 모드의 드래프트 값을 프리셋으로 저장 (즉시 저장)
   applyPreset: (id: string) => void;           // 프리셋 → 커스텀 모드에 적용 (드래프트)
   removePreset: (id: string) => void;
+  /** 실제로 보이는 모드 (v2.1) — 보는 사람이 프로필 메뉴에서 다크/라이트를 고르면 그 값 */
+  viewMode: ThemeMode;
+  /** 지금 화면이 밝은 테마인지 — 별밤 배경은 어두울 때만 깐다 */
+  isLight: boolean;
 }
 
 const Ctx = createContext<ThemeCtx | null>(null);
@@ -69,6 +75,11 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const [pageColor, setPageColor] = useState<{ color: string; tone?: PointTone } | null>(null);
   const [pageBg, setPageBgState] = useState<PageBg | null>(null);   // 자관별 배경 (v2.0)
   const [loaded, setLoaded] = useState(false);   // 저장본 로드 전 기본 다크를 DOM에 쓰지 않기 (FOUC 방지)
+  // 보는 사람별 다크/라이트 (v2.1) — 환경설정 화면에서는 관리자가 사이트 테마를 그대로 보며 고쳐야 하므로 무시
+  const viewer = useViewerMode();
+  const pathname = usePathname();
+  const override = viewer && !pathname?.startsWith('/settings') ? viewer : null;
+  const effMode: ThemeMode = override ?? draft.mode;
 
   // 최초 로드 — v2 우선, 없으면 v1 마이그레이션 (기존 vars를 해당 모드의 수정본으로 승계)
   useEffect(() => {
@@ -108,10 +119,10 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     /* 캐릭터·자관 테마컬러는 색만 바꾸는 것 — 파생 팔레트가 ThemeVars를 통째로 새로 만들어
        **표시 옵션까지 기본값으로 리셋**되던 것을 사이트 설정에서 이어받는다 (v2.0 사용자 제보 —
        「헤더 설명을 껐는데 커스텀 테마 캐릭터 상세에서만 다시 보인다」) */
-    const site = draft.perMode[draft.mode];
+    const site = draft.perMode[effMode];
     applyToDom(pageColor
       ? {
-        ...derivePointTheme(pageColor.color, pageColor.tone ?? draft.pointTone),
+        ...derivePointTheme(pageColor.color, override ?? pageColor.tone ?? draft.pointTone),
         pageHead: site.pageHead, pageHeadM: site.pageHeadM,
       }
       : site);
@@ -124,12 +135,17 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
       root.style.setProperty('--bg-angle', `${pageBg.angle}deg`);
       root.style.setProperty('--bg-image', 'none');   // 사이트 배경 이미지가 덮지 않게
     }
-  }, [draft, pageColor, pageBg, loaded]);
+    // 보는 사람 모드의 첫 페인트용 맵 — 다음 접속 때 사이트 색이 먼저 번쩍이지 않게 (이 브라우저에만)
+    try {
+      if (override) localStorage.setItem(VIEWER_CSS_KEY, JSON.stringify(themeToCssVars(site)));
+      else localStorage.removeItem(VIEWER_CSS_KEY);
+    } catch { /* 무시 */ }
+  }, [draft, pageColor, pageBg, loaded, effMode, override]);
 
   // 배경 이미지 (v1.9) — IndexedDB 파일을 blob URL로 풀어 --bg-image 적용 (그라데이션 모드면 해제)
   useEffect(() => {
     if (!loaded) return;
-    const vars = draft.perMode[draft.mode];
+    const vars = draft.perMode[effMode];
     const root = document.documentElement;
     if (vars.bgType === 'image' && vars.bgImageId && !pageColor && !pageBg) {
       const ref = vars.bgImageId;
@@ -157,7 +173,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
       };
     }
     root.style.removeProperty('--bg-image');
-  }, [draft, pageColor, pageBg, loaded]);
+  }, [draft, pageColor, pageBg, loaded, effMode]);
 
   const dirty = useMemo(() => JSON.stringify(saved) !== JSON.stringify(draft), [saved, draft]);
 
@@ -242,6 +258,8 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     <Ctx.Provider value={{
       state, dirty, setMode, setPointAccent, setPointTone, setVar,
       resetMode, save, discard, presets, savePreset, applyPreset, removePreset, setPageTheme, setPageBg,
+      viewMode: effMode,
+      isLight: effMode === 'light' || (effMode === 'point' && draft.pointTone === 'light'),
     }}>
       {children}
     </Ctx.Provider>

@@ -61,7 +61,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             있다(사용자 발견 — "처음 접속할 때 기본 다크모드가 깜빡") — body 자체가 파싱되는 순간 CSS만으로도
             그려질 수 있기 때문. <head> 맨 앞으로 옮겨 렌더 차단 구간(첫 페인트 전) 안에서 먼저 실행되게 한다 (v2.0) */}
         <script dangerouslySetInnerHTML={{
-          __html: `(function(){try{var m=JSON.parse(localStorage.getItem('ohome.themeCss.v1'));if(m){var s=document.documentElement.style;for(var k in m)s.setProperty(k,m[k]);}
+          __html: `(function(){try{var m=JSON.parse((location.pathname.indexOf('/settings')!==0&&localStorage.getItem('ohome.viewerCss.v1'))||localStorage.getItem('ohome.themeCss.v1'));if(m){var s=document.documentElement.style;for(var k in m)s.setProperty(k,m[k]);}
 /* 웨일 전용 (v2.0 사용자 제보) — 웨일의 「웹 콘텐츠 다크 모드」는 only light 옵트아웃을 무시한다.
    자체 다크 엔진은 「다크를 지원하는 사이트」는 건너뛰므로, 웨일에서만 다크 지원을 선언한다.
    다른 브라우저는 검증된 only light 유지 — 영향 범위를 웨일로 좁힌다 */

@@ -160,6 +160,10 @@ a{color:inherit;text-decoration:none}
 .badge-dot[data-n]:not([data-n="0"])::after{content:attr(data-n);position:absolute;top:-3px;right:-4px;background:var(--accent);color:#fff;font-size:calc(9px*var(--fs,1));font-weight:700;width:15px;height:15px;border-radius:50%;display:grid;place-items:center;line-height:1;font-family:var(--sans);letter-spacing:0}
 .login-link{font-size:calc(12px*var(--fs,1));color:var(--top-fg);padding:7px 15px;border:1px solid var(--line-dark);border-radius:999px;transition:.15s;white-space:nowrap}
 .login-link:hover{color:var(--top-hv,#fff);border-color:var(--top-hv,#fff)}
+/* 보는 사람별 다크모드 (v2.1) — 프로필 메뉴의 토글 줄 · 비로그인용 아이콘 버튼 */
+.user-menu .dark-row{display:flex;justify-content:space-between;align-items:center;padding:7px 12px;font-size:calc(12px*var(--fs,1));color:var(--dd-fg)}
+.dark-btn{font-size:calc(14px*var(--fs,1));color:var(--top-fg);width:32px;height:32px;border-radius:50%;border:1px solid var(--line-dark);margin-right:8px;transition:.15s;flex-shrink:0}
+.dark-btn:hover{color:var(--top-hv,#fff);border-color:var(--top-hv,#fff)}
 
 /* 이미지 저장 방지 (v1.9) — 보호 영역에서 이미지 드래그 반출 차단 (ImgProtect가 html에 토글) */
 .img-protect-on img{-webkit-user-drag:none;user-select:none}
@@ -982,7 +986,11 @@ body.edit-on .main-grid.gridlines .wgt{outline-offset:0}
 .side-icons button{width:46px;height:46px;border-radius:12px;background:var(--tab-bg,rgba(255,255,255,.08));color:var(--tab-fg,#aab0ba);font-size:calc(19px*var(--fs,1));display:grid;place-items:center;padding-bottom:4px;border:1px solid var(--line-dark);transition:.18s} /* 딩벳 글리프 아래 쏠림 보정 (v1.9 실측 — 사용자 미세조정 +1) */
 .side-icons button:hover{color:var(--tab-on-fg,#fff);background:var(--tab-on-bg,rgba(255,255,255,.16));opacity:.85}
 .side-icons button.on{background:var(--tab-on-bg,var(--panel-solid));color:var(--tab-on-fg,var(--ink));border-color:transparent;opacity:1}
-.profile-center{border-radius:var(--radius);overflow:hidden;position:sticky;top:10px;height:calc(100vh - 150px);min-height:480px}
+/* 3:4 고정 (v2.1 사용자 제보 — 「스탠딩이 간혹 잘려 보인다」). 예전엔 칸 너비 × 화면 높이라 비율이
+   화면마다 달라, 3:4로 잡은 썸네일 크롭과 다른 곳이 잘렸다. 썸네일 크롭과 같은 3:4로 두고 크롭을
+   그대로 적용한다 — 높이는 예전처럼 화면 높이에 맞추고, 칸이 좁으면 너비에 맞춰 줄어든다 */
+.profile-center{border-radius:var(--radius);overflow:hidden;position:sticky;top:10px;
+  width:min(100%,calc((100vh - 150px)*.75));aspect-ratio:3/4;justify-self:center}
 .profile-center img{width:100%;height:100%;object-fit:cover}
 /* 스티키 안정성 (v1.9): 끝까지 스크롤했을 때 아트 하단 == 정보 패널 하단이 되도록
    하단 여백을 계산값으로 고정 — viewH(100vh-58) - top(10) - artH(100vh-150) = 82px */
@@ -1749,7 +1757,8 @@ body.edit-on .main-grid.gridlines .wgt{outline-offset:0}
   .gnb{display:none}
   .topbar{padding:0 16px;gap:12px}
   /* gnb(flex:1)가 숨어 우측 밀림이 사라짐 — 알림·프로필/로그인 우측 정렬 복원 (8장) */
-  .user-wrap,.login-link{margin-left:auto}
+  .user-wrap,.login-link,.dark-btn{margin-left:auto}
+  .dark-btn + .login-link{margin-left:0}
   .page{padding:16px 16px 90px}
   .page-head h1{font-size:calc(24px*var(--fs,1))}
   /* 페이지 타이틀 모바일 옵션 (v1.9 사용자 요청) — 「생략」이면 모바일에서만 제목·설명 숨김
@@ -1821,7 +1830,7 @@ body.edit-on .main-grid.gridlines .wgt{outline-offset:0}
    별밤 캐릭터 화면 (v2.1 사용자 요청) — 자놀·TRPG 캐릭터 목록·상세
    개인용 홈(아보카도 프로필 뷰어) 디자인 참조: 짙은 남색 별밤 배경 · 테두리 없이 별빛에
    녹아드는 전신 아트 · 가운데 정렬 명조 이름 · 반투명 정보 상자 · 푸른 소제목.
-   기능·마크업 구조는 그대로 두고 .cosmic 아래에서만 다시 칠한다.
+   기능·마크업 구조는 그대로 두고 body.has-starfield .cosmic 아래에서만 다시 칠한다.
    ========================================================== */
 .starfield{position:fixed;inset:0;z-index:-1;pointer-events:none;background:#04060d;overflow:hidden}
 .starfield canvas{position:absolute;inset:0;width:100%;height:100%}
@@ -1839,95 +1848,116 @@ body.edit-on .main-grid.gridlines .wgt{outline-offset:0}
 body.has-starfield .topbar{background:rgba(6,9,20,.55);backdrop-filter:blur(10px)}
 
 /* 색 변수 — 페이지 전체가 아니라 그려지는 영역에만 (모달·크롭 편집기는 원래 색 유지) */
-.cosmic > .page-head,.cosmic .profile-wrap,.cosmic .chars-grid,.cosmic .tc-grid,.cosmic .tcd-layout,.cosmic > .panel,.cosmic > .au-list{
+body.has-starfield .cosmic > .page-head,body.has-starfield .cosmic .profile-wrap,body.has-starfield .cosmic .chars-grid,body.has-starfield .cosmic .tc-grid,body.has-starfield .cosmic .tcd-layout,body.has-starfield .cosmic > .panel,body.has-starfield .cosmic > .au-list{
   --panel:rgba(12,17,34,.5); --panel-solid:#0d1222;
   --ink:#eef1f8; --sub:#b4bccd; --faint:#8590a8;
   --line:rgba(255,255,255,.12);
   --page-title:#f4f6fb; --page-desc:#8e99b2;
   --cosmic-hl:#8fb0ff;
   --cosmic-serif:'Noto Serif KR','Cormorant Garamond',serif;
+  /* 글자색은 변수가 아니라 **값으로 상속**된다 — body에서 이미 어두운 --ink로 풀린 색을 물려받아
+     색을 따로 정하지 않은 글자(TRPG 시나리오·룰 값, 카드 이름 등)가 어둡게 나왔다 (v2.1 사용자 제보) */
+  color:var(--ink);
 }
-.cosmic .page-head h1{text-shadow:0 0 18px rgba(160,190,255,.35)}
-.cosmic .page-head .btn-dark{background:rgba(255,255,255,.05);color:#f1f3f8;border:1px solid rgba(255,255,255,.4);border-radius:999px;padding-left:18px;padding-right:18px;letter-spacing:.12em;transition:.3s}
-.cosmic .page-head .btn-dark:hover{background:#fff;color:#0a0e1c}
-.cosmic .pill{background:rgba(255,255,255,.06);color:#cfd6e6;border-color:rgba(255,255,255,.2)}
-.cosmic .pill.dark{background:rgba(143,176,255,.16);color:#dfe7ff;border-color:rgba(143,176,255,.45)}
-.cosmic .panel{background:var(--panel);border:1px solid rgba(255,255,255,.07);box-shadow:0 20px 60px rgba(0,0,0,.45);backdrop-filter:blur(6px)}
+body.has-starfield .cosmic .page-head h1{text-shadow:0 0 18px rgba(160,190,255,.35)}
+body.has-starfield .cosmic .page-head .btn-dark{background:rgba(255,255,255,.05);color:#f1f3f8;border:1px solid rgba(255,255,255,.4);border-radius:999px;padding-left:18px;padding-right:18px;letter-spacing:.12em;transition:.3s}
+body.has-starfield .cosmic .page-head .btn-dark:hover{background:#fff;color:#0a0e1c}
+body.has-starfield .cosmic .pill{background:rgba(255,255,255,.06);color:#cfd6e6;border-color:rgba(255,255,255,.2)}
+body.has-starfield .cosmic .pill.dark{background:rgba(143,176,255,.16);color:#dfe7ff;border-color:rgba(143,176,255,.45)}
+body.has-starfield .cosmic .panel{background:var(--panel);border:1px solid rgba(255,255,255,.07);box-shadow:0 20px 60px rgba(0,0,0,.45);backdrop-filter:blur(6px)}
 
 /* ---- 목록 카드 공통: 별빛 테두리가 그려지며 들어오는 호버 (참조: mb_hidden) ---- */
-.cosmic .char-card,.cosmic .tc-card{background:rgba(255,255,255,.035);border:1px solid rgba(255,255,255,.08);box-shadow:0 14px 40px rgba(0,0,0,.45);backdrop-filter:none}
-.cosmic .char-card:hover,.cosmic .tc-card:hover{box-shadow:0 18px 50px rgba(0,0,0,.55),0 0 24px rgba(143,176,255,.18);border-color:rgba(143,176,255,.3)}
-.cosmic .char-card .thumb::after,.cosmic .tc-card .main::after{content:"";position:absolute;inset:0;z-index:2;pointer-events:none;
+body.has-starfield .cosmic .char-card,body.has-starfield .cosmic .tc-card{background:rgba(255,255,255,.035);border:1px solid rgba(255,255,255,.08);box-shadow:0 14px 40px rgba(0,0,0,.45);backdrop-filter:none}
+body.has-starfield .cosmic .char-card:hover,body.has-starfield .cosmic .tc-card:hover{box-shadow:0 18px 50px rgba(0,0,0,.55),0 0 24px rgba(143,176,255,.18);border-color:rgba(143,176,255,.3)}
+body.has-starfield .cosmic .char-card .thumb::after,body.has-starfield .cosmic .tc-card .main::after{content:"";position:absolute;inset:0;z-index:2;pointer-events:none;
   background:linear-gradient(to bottom,transparent 58%,rgba(5,8,18,.75) 100%)}
-.cosmic .char-card .thumb::before,.cosmic .tc-card .main::before{content:"";position:absolute;inset:9px;z-index:3;pointer-events:none;
+body.has-starfield .cosmic .char-card .thumb::before,body.has-starfield .cosmic .tc-card .main::before{content:"";position:absolute;inset:9px;z-index:3;pointer-events:none;
   border:1px solid rgba(255,255,255,.7);opacity:0;transform:scale(1.05);transition:opacity .4s,transform .4s}
-.cosmic .char-card:hover .thumb::before,.cosmic .tc-card:hover .main::before{opacity:.75;transform:scale(1)}
-.cosmic .char-card .thumb img,.cosmic .tc-card .main img{transition:filter .4s}
-.cosmic .char-card:hover .thumb img,.cosmic .tc-card:hover .main img{filter:brightness(1.08) saturate(1.05)}
-.cosmic .char-card .nm{justify-content:center;gap:9px;padding:13px 14px 14px}
-.cosmic .char-card .nm b{flex:0 1 auto !important;font-family:var(--cosmic-serif);font-weight:500;letter-spacing:.14em;color:var(--ink);text-align:center}
-.cosmic .char-card .nm i{box-shadow:0 0 8px currentColor,0 0 0 1px rgba(255,255,255,.35)}
-.cosmic .tc-card .bd .nm{font-family:var(--cosmic-serif);font-weight:600;letter-spacing:.06em}
-.cosmic .tc-card .bd .desc{border-top-color:rgba(255,255,255,.1)}
+body.has-starfield .cosmic .char-card:hover .thumb::before,body.has-starfield .cosmic .tc-card:hover .main::before{opacity:.75;transform:scale(1)}
+body.has-starfield .cosmic .char-card .thumb img,body.has-starfield .cosmic .tc-card .main img{transition:filter .4s}
+body.has-starfield .cosmic .char-card:hover .thumb img,body.has-starfield .cosmic .tc-card:hover .main img{filter:brightness(1.08) saturate(1.05)}
+body.has-starfield .cosmic .char-card .nm{justify-content:center;gap:9px;padding:13px 14px 14px}
+body.has-starfield .cosmic .char-card .nm b{flex:0 1 auto !important;font-family:var(--cosmic-serif);font-weight:500;letter-spacing:.14em;color:var(--ink);text-align:center}
+body.has-starfield .cosmic .char-card .nm i{box-shadow:0 0 8px currentColor,0 0 0 1px rgba(255,255,255,.35)}
+body.has-starfield .cosmic .tc-card .bd .nm{font-family:var(--cosmic-serif);font-weight:600;letter-spacing:.06em}
+body.has-starfield .cosmic .tc-card .bd .desc{border-top-color:rgba(255,255,255,.1)}
 
 /* ---- 자놀 캐릭터 상세 ---- */
-.cosmic .profile-wrap{grid-template-columns:64px 1fr 400px}
+body.has-starfield .cosmic .profile-wrap{grid-template-columns:64px 1fr 400px}
 /* 아트: 테두리·모서리 없이 아래로 별밤에 녹아들게 */
-.cosmic .profile-center{border-radius:0;
+body.has-starfield .cosmic .profile-center{border-radius:0;
   -webkit-mask-image:linear-gradient(to bottom,#000 72%,transparent 100%),linear-gradient(to right,transparent 0,#000 6%,#000 94%,transparent 100%);
   -webkit-mask-composite:source-in;
   mask-image:linear-gradient(to bottom,#000 72%,transparent 100%),linear-gradient(to right,transparent 0,#000 6%,#000 94%,transparent 100%);
   mask-composite:intersect}
-.cosmic .profile-center > .ph{background:radial-gradient(60% 60% at 50% 40%,rgba(80,110,190,.25),transparent 70%)}
+body.has-starfield .cosmic .profile-center > .ph{background:radial-gradient(60% 60% at 50% 40%,rgba(80,110,190,.25),transparent 70%)}
 /* 아이콘 탭: 가는 흰 테두리 원형 · 선택은 흰 바탕 + 빛 */
-.cosmic .side-icons button{border-radius:50%;background:rgba(255,255,255,.04);color:rgba(255,255,255,.62);border:1px solid rgba(255,255,255,.28)}
-.cosmic .side-icons button:hover{background:rgba(255,255,255,.12);color:#fff;opacity:1;border-color:rgba(255,255,255,.6)}
-.cosmic .side-icons button.on{background:#fff;color:#0a0e1c;border-color:#fff;box-shadow:0 0 18px rgba(170,200,255,.55)}
+body.has-starfield .cosmic .side-icons button{border-radius:50%;background:rgba(255,255,255,.04);color:rgba(255,255,255,.62);border:1px solid rgba(255,255,255,.28)}
+body.has-starfield .cosmic .side-icons button:hover{background:rgba(255,255,255,.12);color:#fff;opacity:1;border-color:rgba(255,255,255,.6)}
+body.has-starfield .cosmic .side-icons button.on{background:#fff;color:#0a0e1c;border-color:#fff;box-shadow:0 0 18px rgba(170,200,255,.55)}
 /* 정보 패널: 칭호(서브) → 이름 → 구분선 → 스펙 한 줄 → 소개 */
-.cosmic .profile-info{display:flex;flex-direction:column;padding:34px 30px 30px;font-family:var(--cosmic-serif);
+body.has-starfield .cosmic .profile-info{display:flex;flex-direction:column;padding:34px 30px 30px;font-family:var(--cosmic-serif);
   background:linear-gradient(to bottom,rgba(10,15,32,.62),rgba(8,12,26,.42));border:1px solid rgba(255,255,255,.07)}
-.cosmic .profile-info > *{flex-shrink:0}
-.cosmic .profile-info .cd-sub{order:-1;margin:0 0 10px !important;text-align:center;letter-spacing:.32em;font-size:calc(11px*var(--fs,1));color:var(--sub)}
-.cosmic .profile-info .cd-name{text-align:center;color:#fff;text-shadow:0 0 22px rgba(160,190,255,.4)}
-.cosmic .profile-info .cd-name::after{content:"";display:block;width:56px;height:1px;margin:18px auto 20px;
+body.has-starfield .cosmic .profile-info > *{flex-shrink:0}
+body.has-starfield .cosmic .profile-info .cd-sub{order:-1;margin:0 0 10px !important;text-align:center;letter-spacing:.32em;font-size:calc(11px*var(--fs,1));color:var(--sub)}
+body.has-starfield .cosmic .profile-info .cd-name{text-align:center;color:#fff;text-shadow:0 0 22px rgba(160,190,255,.4)}
+body.has-starfield .cosmic .profile-info .cd-name::after{content:"";display:block;width:56px;height:1px;margin:18px auto 20px;
   background:linear-gradient(90deg,transparent,rgba(255,255,255,.75),transparent)}
-.cosmic .spec{display:block;text-align:center;line-height:2.1;margin:0 0 22px;font-size:calc(12.5px*var(--fs,1))}
-.cosmic .spec dt,.cosmic .spec dd{display:inline}
-.cosmic .spec dt{color:var(--faint);font-size:.82em;letter-spacing:.08em;margin-right:6px;white-space:nowrap}
-.cosmic .spec dd{color:#e8ecf5}
-.cosmic .spec dd:not(:last-of-type)::after{content:"";display:inline-block;width:1px;height:.9em;background:rgba(255,255,255,.3);margin:0 13px;vertical-align:-1px}
-.cosmic .spec dd .sw-static{vertical-align:-4px}
-.cosmic .prose{color:#d3d9e6;font-size:calc(13.5px*var(--fs,1));line-height:1.9;background:rgba(0,0,0,.16);border-radius:4px;padding:20px 22px}
-.cosmic .prose:empty{display:none}
-.cosmic .prose b,.cosmic .prose strong,.cosmic .prose h1,.cosmic .prose h2,.cosmic .prose h3{color:var(--cosmic-hl);letter-spacing:.03em}
-.cosmic .prose b{font-size:1.06em;margin-top:14px}
-.cosmic .prose > b:first-child,.cosmic .prose > p:first-child > b:first-child{margin-top:0}
-.cosmic .prose a{color:var(--cosmic-hl);text-decoration:underline;text-underline-offset:3px}
-.cosmic .prose hr{border:none;height:1px;margin:18px 0;background:linear-gradient(90deg,transparent,rgba(255,255,255,.3),transparent)}
-.cosmic .profile-info h3.tab-tt{text-align:center;color:#fff;font-size:calc(17px*var(--fs,1));letter-spacing:.24em;display:flex;align-items:center;gap:14px;margin-bottom:6px}
-.cosmic .profile-info h3.tab-tt::before,.cosmic .profile-info h3.tab-tt::after{content:"";flex:1;height:1px;background:linear-gradient(90deg,transparent,rgba(255,255,255,.35))}
-.cosmic .profile-info h3.tab-tt::after{background:linear-gradient(270deg,transparent,rgba(255,255,255,.35))}
-.cosmic .profile-info .sub:not(.cd-sub){text-align:center}
-.cosmic > .au-list .au-item{box-shadow:0 6px 20px rgba(0,0,0,.4)}
+body.has-starfield .cosmic .spec{display:block;text-align:center;line-height:2.1;margin:0 0 22px;font-size:calc(12.5px*var(--fs,1))}
+body.has-starfield .cosmic .spec dt,body.has-starfield .cosmic .spec dd{display:inline}
+body.has-starfield .cosmic .spec dt{color:var(--faint);font-size:.82em;letter-spacing:.08em;margin-right:6px;white-space:nowrap}
+body.has-starfield .cosmic .spec dd{color:#e8ecf5}
+body.has-starfield .cosmic .spec dd:not(:last-of-type)::after{content:"";display:inline-block;width:1px;height:.9em;background:rgba(255,255,255,.3);margin:0 13px;vertical-align:-1px}
+body.has-starfield .cosmic .spec dd .sw-static{vertical-align:-4px}
+body.has-starfield .cosmic .prose{color:#d3d9e6;font-size:calc(13.5px*var(--fs,1));line-height:1.9;background:rgba(0,0,0,.16);border-radius:4px;padding:20px 22px}
+body.has-starfield .cosmic .prose:empty{display:none}
+body.has-starfield .cosmic .prose b,body.has-starfield .cosmic .prose strong,body.has-starfield .cosmic .prose h1,body.has-starfield .cosmic .prose h2,body.has-starfield .cosmic .prose h3{color:var(--cosmic-hl);letter-spacing:.03em}
+body.has-starfield .cosmic .prose b{font-size:1.06em;margin-top:14px}
+body.has-starfield .cosmic .prose > b:first-child,body.has-starfield .cosmic .prose > p:first-child > b:first-child{margin-top:0}
+body.has-starfield .cosmic .prose a{color:var(--cosmic-hl);text-decoration:underline;text-underline-offset:3px}
+body.has-starfield .cosmic .prose hr{border:none;height:1px;margin:18px 0;background:linear-gradient(90deg,transparent,rgba(255,255,255,.3),transparent)}
+body.has-starfield .cosmic .profile-info h3.tab-tt{text-align:center;color:#fff;font-size:calc(17px*var(--fs,1));letter-spacing:.24em;display:flex;align-items:center;gap:14px;margin-bottom:6px}
+body.has-starfield .cosmic .profile-info h3.tab-tt::before,body.has-starfield .cosmic .profile-info h3.tab-tt::after{content:"";flex:1;height:1px;background:linear-gradient(90deg,transparent,rgba(255,255,255,.35))}
+body.has-starfield .cosmic .profile-info h3.tab-tt::after{background:linear-gradient(270deg,transparent,rgba(255,255,255,.35))}
+body.has-starfield .cosmic .profile-info .sub:not(.cd-sub){text-align:center}
+body.has-starfield .cosmic > .au-list .au-item{box-shadow:0 6px 20px rgba(0,0,0,.4)}
 
 /* ---- TRPG 캐릭터 상세 ---- */
-.cosmic .tcd-layout{grid-template-columns:440px 1fr;gap:26px}
-.cosmic .tcd-art{background:transparent;border:none;box-shadow:none;backdrop-filter:none;padding:0 !important}
-.cosmic .tcd-img{border-radius:6px;box-shadow:0 0 0 1px rgba(255,255,255,.12),0 30px 80px rgba(0,0,0,.6),0 0 40px rgba(110,150,240,.12)}
-.cosmic .tcd-info{font-family:var(--cosmic-serif);padding:32px 30px !important;
+body.has-starfield .cosmic .tcd-layout{grid-template-columns:440px 1fr;gap:26px}
+body.has-starfield .cosmic .tcd-art{background:transparent;border:none;box-shadow:none;backdrop-filter:none;padding:0 !important}
+body.has-starfield .cosmic .tcd-img{border-radius:6px;box-shadow:0 0 0 1px rgba(255,255,255,.12),0 30px 80px rgba(0,0,0,.6),0 0 40px rgba(110,150,240,.12)}
+body.has-starfield .cosmic .tcd-info{font-family:var(--cosmic-serif);padding:32px 30px !important;
   background:linear-gradient(to bottom,rgba(10,15,32,.62),rgba(8,12,26,.42))}
-.cosmic .tcd-name{justify-content:center;flex-wrap:wrap;color:#fff;letter-spacing:.12em;text-shadow:0 0 22px rgba(160,190,255,.4)}
-.cosmic .tcd-meta{justify-items:center;text-align:center;border-bottom-style:solid !important}
-.cosmic .tcd-meta > div{justify-content:center}
-.cosmic .tcd-meta b{min-width:0 !important;color:var(--cosmic-hl) !important;font-family:'Cormorant Garamond',serif;letter-spacing:.14em}
-.cosmic .tcd-info .post-body{color:#d3d9e6}
-.cosmic .tcd-info .post-body b,.cosmic .tcd-info .post-body strong,.cosmic .tcd-info .post-body h1,.cosmic .tcd-info .post-body h2,.cosmic .tcd-info .post-body h3{color:var(--cosmic-hl)}
-.cosmic .tc-faces .fc{border-radius:50%;border-color:rgba(255,255,255,.15)}
-.cosmic .tc-faces .fc.on{border-color:#fff;box-shadow:0 0 14px rgba(170,200,255,.5)}
+body.has-starfield .cosmic .tcd-name{justify-content:center;flex-wrap:wrap;color:#fff;letter-spacing:.12em;text-shadow:0 0 22px rgba(160,190,255,.4)}
+body.has-starfield .cosmic .tcd-meta{justify-items:center;text-align:center;border-bottom-style:solid !important}
+body.has-starfield .cosmic .tcd-meta > div{justify-content:center}
+body.has-starfield .cosmic .tcd-meta b{min-width:0 !important;color:var(--cosmic-hl) !important;font-family:'Cormorant Garamond',serif;letter-spacing:.14em}
+body.has-starfield .cosmic .tcd-info .post-body{color:#d3d9e6}
+body.has-starfield .cosmic .tcd-info .post-body b,body.has-starfield .cosmic .tcd-info .post-body strong,body.has-starfield .cosmic .tcd-info .post-body h1,body.has-starfield .cosmic .tcd-info .post-body h2,body.has-starfield .cosmic .tcd-info .post-body h3{color:var(--cosmic-hl)}
+body.has-starfield .cosmic .tc-faces .fc{border-radius:50%;border-color:rgba(255,255,255,.15)}
+body.has-starfield .cosmic .tc-faces .fc.on{border-color:#fff;box-shadow:0 0 14px rgba(170,200,255,.5)}
+
+/* ---- 메인 화면 (v2.1 사용자 요청 — 별밤을 메인에도) ----
+   위젯 색은 디자인 탭 값(--wg-*)이 :root에서 이미 풀려 있으므로 여기서 다시 정한다 */
+body.has-starfield .cosmic-main{
+  --panel:rgba(12,17,34,.5); --panel-solid:#0d1222;
+  --ink:#eef1f8; --sub:#b4bccd; --faint:#8590a8;
+  --line:rgba(255,255,255,.12);
+  --wg-bg:rgba(12,17,34,.48); --wg-fg:#e6eaf3; --wg-title:#8fb0ff; --wg-bd:rgba(255,255,255,.1); --wg-bd-w:1px;
+  color:#e6eaf3;
+}
+body.has-starfield .cosmic-main .widget{backdrop-filter:blur(6px);box-shadow:0 18px 50px rgba(0,0,0,.45)}
+body.has-starfield .cosmic-main .widget h4{font-family:'Cormorant Garamond','Noto Serif KR',serif;letter-spacing:.22em;text-shadow:0 0 12px rgba(143,176,255,.35)}
+body.has-starfield .cosmic-main .widget a:hover{color:#fff}
+body.has-starfield .cosmic-main .pill{background:rgba(255,255,255,.06);color:#cfd6e6;border-color:rgba(255,255,255,.2)}
+/* 입력칸·고스트 버튼은 흰 바탕이 박혀 있어, 밝아진 글자가 안 보이지 않게 어두운 유리로 */
+body.has-starfield .cosmic-main .k-input,body.has-starfield .cosmic-main .k-textarea,
+body.has-starfield .cosmic .profile-wrap .k-input,body.has-starfield .cosmic .tcd-layout .k-input{background:rgba(255,255,255,.06);color:var(--ink)}
+body.has-starfield .cosmic-main .btn-ghost{background:rgba(255,255,255,.05)}
 
 @media(max-width:960px){
-  .cosmic .profile-wrap{grid-template-columns:1fr}
-  .cosmic .profile-center{-webkit-mask-image:linear-gradient(to bottom,#000 80%,transparent 100%);mask-image:linear-gradient(to bottom,#000 80%,transparent 100%)}
-  .cosmic .profile-info{padding:26px 20px}
-  .cosmic .tcd-layout{grid-template-columns:1fr}
+  body.has-starfield .cosmic .profile-wrap{grid-template-columns:1fr}
+  body.has-starfield .cosmic .profile-center{-webkit-mask-image:linear-gradient(to bottom,#000 80%,transparent 100%);mask-image:linear-gradient(to bottom,#000 80%,transparent 100%)}
+  body.has-starfield .cosmic .profile-info{padding:26px 20px}
+  body.has-starfield .cosmic .tcd-layout{grid-template-columns:1fr}
 }

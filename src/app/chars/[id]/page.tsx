@@ -231,10 +231,11 @@ function CharDetailInner() {
               }}>
               {/* 지정한 크롭 위치를 여기서도 쓴다 — 예전에는 가운데 기준으로 잘려서
                   리스트에서 맞춰 둔 위치와 다른 곳이 보였다 (대표 아트에만 적용) */}
-              {/* 리스트 썸네일 크롭은 3:4 기준이라 여기(화면 높이에 따라 비율이 달라지는 영역)에는
-                  맞지 않는다 — 여기서 따로 잡은 값이 있을 때만 쓰고, 없으면 가운데 기준 (v2.0) */}
+              {/* 대표 아트: 여기서 따로 잡은 위치(artCrop)가 없으면 **썸네일 크롭을 그대로** 쓴다
+                  (v2.1 사용자 요청). 영역을 썸네일과 같은 3:4로 고정해서 크롭한 모습 그대로 나온다.
+                  썸네일 크롭은 첫 아트 기준이라 아트 목록(arts)이 있을 때만 */}
               <CroppedBlobImg fileRef={arts[cur] ?? eff.artUrl}
-                crop={cur === 0 ? eff.artCrop : undefined}
+                crop={cur === 0 ? (eff.artCrop ?? (eff.arts?.length ? eff.thumbCrop : undefined)) : undefined}
                 ph={ch.thumbClass} label="CHARACTER FULL ART" />
               {arts.length > 1 && (
                 <div style={{ position: 'absolute', left: 0, right: 0, bottom: 12, display: 'flex', justifyContent: 'center', gap: 5, zIndex: 3 }}>
