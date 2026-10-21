@@ -5,7 +5,10 @@
 
 /** 로그를 보내도 되는 사이트 — 그 외 출처의 메시지는 무시한다.
  *  더 늘리려면 Vercel 환경변수 NEXT_PUBLIC_LOG_IMPORT_ORIGINS 에 쉼표로 적는다 */
-const DEFAULT_ORIGINS = ['http://gnight.dothome.co.kr', 'https://gnight.dothome.co.kr'];
+const DEFAULT_ORIGINS = [
+  'https://play.chuuns.com', 'http://play.chuuns.com',
+  'http://gnight.dothome.co.kr', 'https://gnight.dothome.co.kr',
+];
 
 export function allowedImportOrigins(): string[] {
   const extra = (process.env.NEXT_PUBLIC_LOG_IMPORT_ORIGINS || '')
