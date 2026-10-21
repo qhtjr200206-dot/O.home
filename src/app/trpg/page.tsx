@@ -21,10 +21,11 @@ import { useMainStore } from '@/lib/mainStore';
 import { mergeOrder } from '@/lib/cardSort';
 import { DragList } from '@/components/ui/DragList';
 import { OrderMenu, orderNoOf, moveToOrder } from '@/components/ui/OrderMenu';
+import { ImportedLog, listenForLogImport, savePendingImport, takePendingImport } from '@/lib/logImport';
 
 function TrpgPageInner() {
   const router = useRouter();
-  const { user, isAdmin } = useAuth();
+  const { user, isAdmin, ready: authReady } = useAuth();
   const toast = useToast();
   const [site] = useSiteSettings(); // 티켓 하단 문구 = 로고 서브타이틀 (5.2 연동)
   const [logsAll, setLogsAll] = useLocalList<TrpgLog>('ohome.trpg.v1', TRPG_SEED);
@@ -172,6 +173,40 @@ function TrpgPageInner() {
       style: { cursor: 'var(--cur-grab,grab)' },
     };
   };
+
+  /* ---------- 차파챗 등에서 바로 보내기 ----------
+     툴이 `/trpg?import=…` 를 새 창으로 열어 로그를 넘겨 주면 등록 모달을 미리 채워 띄운다.
+     저장은 여기서 하지 않는다 — 관리자가 내용을 확인하고 ADD를 눌러야 등록된다 (lib/logImport 참고) */
+  const [imported, setImported] = useState<ImportedLog | null>(null);
+  useEffect(() => {
+    const pending = takePendingImport();   // 로그인 전에 받아 둔 것
+    if (pending) setImported(pending);
+    return listenForLogImport(setImported);
+  }, []);
+  useEffect(() => {
+    if (!imported || !authReady) return;
+    if (!isAdmin) {
+      savePendingImport(imported);
+      setImported(null);
+      toast('관리자로 로그인한 뒤 이 페이지를 다시 열면 받은 로그로 이어서 등록합니다');
+      return;
+    }
+    const f = new File([imported.html], imported.fileName, { type: 'text/html' });
+    setNMode('file');
+    setNFile(f);
+    setNFileName(f.name);
+    setNBody(imported.html);
+    if (imported.title) setNTitle(imported.title);
+    if (imported.date) setNDate(imported.date);
+    if (imported.withText) setNWith(imported.withText);
+    setAddOpen(true);
+    setImported(null);
+    toast(`${imported.source}에서 로그를 받았습니다 — 내용을 확인하고 ADD를 눌러 주세요`);
+    // 다시 고침해도 또 받지 않게 주소에서 import 표시를 뗀다
+    const u = new URL(window.location.href);
+    u.searchParams.delete('import');
+    window.history.replaceState(null, '', u.pathname + u.search + u.hash);
+  }, [imported, authReady, isAdmin, toast]);
 
   const decodeText = decodeLogText; // 공용 유틸 (galleryStore)
 
