@@ -14,6 +14,7 @@ import { EditableDesc, PageTitle } from '@/components/ui/PageText';
 import { useToast } from '@/components/ui/Toast';
 import { useMenuSettings } from '@/lib/menuStore';
 import { useSectionParam } from '@/lib/sectionStore';
+import { fetchTrpgCal, parseShareId } from '@/lib/trpgCalSync';
 
 const MONTHS = ['JANUARY', 'FEBRUARY', 'MARCH', 'APRIL', 'MAY', 'JUNE', 'JULY', 'AUGUST', 'SEPTEMBER', 'OCTOBER', 'NOVEMBER', 'DECEMBER'];
 const fmt = (y: number, m: number, d: number) => `${y}-${String(m + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
@@ -27,6 +28,7 @@ function CalInner() {
   const {
     st, loaded, addEvent, updateEvent, removeEvent,
     patchCat, addCat, removeCat, setCats, setAllowMember, reorderOn,
+    trpgCal, setTrpgCalLink, syncTrpgCal,
   } = useSched(sec.id);
   const { state: mainState, updateWidget } = useMainStore();
   const del = useConfirmDelete();
@@ -44,7 +46,41 @@ function CalInner() {
     memo: '', visibility: 'public' as SchedEvent['visibility'], yearly: false,
   });
 
+  // TRPG 캘린더 동기화 — 공유 링크 설정 창 / 진행 중 표시
+  const [tcOpen, setTcOpen] = useState(false);
+  const [tcInput, setTcInput] = useState('');
+  const [tcVis, setTcVis] = useState<SchedEvent['visibility']>('public');
+  const [tcBusy, setTcBusy] = useState(false);
+
   if (!loaded) return <section className="page" />;
+
+  const runTrpgSync = async (shareId: string) => {
+    setTcBusy(true);
+    try {
+      const sessions = await fetchTrpgCal(shareId);
+      const r = syncTrpgCal(sessions);
+      toast(r.added + r.updated + r.removed === 0
+        ? `TRPG 캘린더와 이미 같습니다 (${sessions.length}개)`
+        : `TRPG 캘린더 동기화 — 추가 ${r.added} · 변경 ${r.updated} · 삭제 ${r.removed}`);
+    } catch (err) {
+      toast(err instanceof Error ? err.message : '동기화에 실패했습니다');
+    } finally {
+      setTcBusy(false);
+    }
+  };
+  const openTrpgSettings = () => {
+    setTcInput(trpgCal ? `https://trpg-calendar.com/share/${trpgCal.shareId}` : '');
+    setTcVis(trpgCal?.visibility ?? 'public');
+    setTcOpen(true);
+  };
+  const saveTrpgSettings = () => {
+    const id = parseShareId(tcInput);
+    if (!id) { toast('TRPG 캘린더 공유 링크를 확인해 주세요'); return; }
+    setTrpgCalLink({ shareId: id, visibility: tcVis, lastSync: trpgCal?.lastSync });
+    setTcOpen(false);
+    // 링크를 저장한 직후 바로 받아온다 — 저장 상태가 반영된 다음 틱에 실행
+    setTimeout(() => runTrpgSync(id), 0);
+  };
 
   const canWrite = isAdmin || (st.allowMember && !!user);
   const canSee = (e: SchedEvent) =>
@@ -116,6 +152,21 @@ function CalInner() {
       <div className="page-head">
         <PageTitle>{sec.id === 'main' ? 'SCHEDULER' : sec.name}</PageTitle>
         <EditableDesc k="cal-desc" def="월간 캘린더 + 투두 + D-day" />
+        {isAdmin && (
+          <div className="head-actions">
+            {trpgCal?.lastSync && (
+              <small style={{ color: 'var(--faint)', fontSize: 10.5, whiteSpace: 'nowrap' }}>
+                마지막 동기화 {new Date(trpgCal.lastSync).toLocaleString('ko-KR', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+              </small>
+            )}
+            <button className="btn btn-dark" style={{ whiteSpace: 'nowrap' }} disabled={tcBusy}
+              onClick={() => (trpgCal ? runTrpgSync(trpgCal.shareId) : openTrpgSettings())}>
+              {tcBusy ? '동기화 중…' : '⟳ TRPG 캘린더 동기화'}
+            </button>
+            <button className="btn btn-ghost" style={{ whiteSpace: 'nowrap' }} onClick={openTrpgSettings}
+              data-tip="공유 링크 · 새 일정 공개범위">⚙</button>
+          </div>
+        )}
       </div>
 
       <div className="cal-layout">
@@ -294,6 +345,34 @@ function CalInner() {
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 12 }}>
           <button className="btn btn-ghost" style={{ padding: '5px 12px', fontSize: 11 }} onClick={addCat}>＋ ADD</button>
           <KToggle label="회원도 일정 등록 허용" checked={st.allowMember} onChange={setAllowMember} />
+        </div>
+      </Modal>
+
+      {/* TRPG 캘린더 동기화 설정 (관리자) */}
+      <Modal open={tcOpen} onClose={() => setTcOpen(false)} small title="TRPG 캘린더 동기화"
+        desc="trpg-calendar.com 의 [설정 → 공유]에서 만든 공유 링크를 붙여 넣으세요"
+        actions={<>
+          {trpgCal && (
+            <button className="btn btn-ghost" onClick={() => { setTrpgCalLink(null); setTcOpen(false); toast('연결을 해제했습니다 — 받아온 일정은 그대로 남습니다'); }}>연결 해제</button>
+          )}
+          <button className="btn btn-ghost" onClick={() => setTcOpen(false)}>CANCEL</button>
+          <button className="btn btn-dark" onClick={saveTrpgSettings}>저장하고 동기화</button>
+        </>}>
+        <div style={{ display: 'grid', gap: 9 }}>
+          <KInput placeholder="https://trpg-calendar.com/share/…" value={tcInput} onChange={e => setTcInput(e.target.value)} />
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <span className="cp-lb">새 일정 공개범위</span>
+            <KSelect minWidth={120} value={tcVis} onChange={v => setTcVis(v as SchedEvent['visibility'])}
+              options={[
+                { value: 'public', label: '전체공개' },
+                { value: 'member', label: '멤버공개' },
+                { value: 'private', label: '나만보기' },
+              ]} />
+          </div>
+          <p className="hint" style={{ margin: 0 }}>
+            받아온 일정은 동기화할 때마다 TRPG 캘린더에 맞춰 추가·변경·삭제됩니다. 직접 등록한 일정은 건드리지 않습니다.
+            제목·날짜·색은 TRPG 캘린더 쪽이 기준이라 여기서 고쳐도 다음 동기화 때 되돌아가고, 공개범위·카테고리는 여기서 바꾼 대로 유지됩니다.
+          </p>
         </div>
       </Modal>
 

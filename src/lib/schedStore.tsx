@@ -6,6 +6,7 @@ import { newId } from './postStore';
 import type { Visibility } from './charStore';
 import { getRawSetting, setSetting } from './settingStore';
 import { MAIN_SEC, inSection, secStamp } from './sectionStore';
+import { mergeTrpgCal, TrpgCalLink, TrpgCalSession, SyncStats } from './trpgCalSync';
 
 export interface SchedCategory { id: string; label: string; color: string }
 
@@ -26,6 +27,7 @@ export interface SchedEvent {
   visibility: Visibility;
   repeat: 'none' | 'yearly'; // 매년 반복
   secId?: string;            // 어느 스케줄러 것인지 (v2.0) — 없으면 기본 스케줄러
+  extId?: string;            // 외부에서 동기화해 온 일정 (예: 'trpgcal:<id>') — 직접 만든 일정은 없음
 }
 
 // 배포 기본 — 더미 일정 없음 (v1.9)
@@ -39,6 +41,8 @@ interface SchedState {
    *  새로 만들자마자 카테고리가 빈칸이면 일정부터 못 넣는다. */
   secCats?: Record<string, SchedCategory[]>;
   allowMember: boolean;      // 회원도 일정 등록 허용 (4.12 등록 권한 옵션) — 스케줄러 공통
+  /** TRPG 캘린더 동기화 설정 — 스케줄러별 (공유 링크·새 일정 공개범위·마지막 동기화) */
+  trpgCal?: Record<string, TrpgCalLink>;
 }
 
 /** 그 스케줄러의 카테고리 (v2.0) — 따로 정한 적이 없으면 기본 스케줄러 것 */
@@ -108,6 +112,32 @@ export function useSched(secId?: string) {
     return { ...s, events: next };
   }), [apply]);
   const setAllowMember = useCallback((v: boolean) => apply(s => ({ ...s, allowMember: v })), [apply]);
+  /* TRPG 캘린더 동기화 — 이 스케줄러 일정만 합치고, 다른 스케줄러 일정은 자리 그대로 둔다 */
+  const setTrpgCalLink = useCallback((link: TrpgCalLink | null) => apply(s => {
+    const m = { ...s.trpgCal };
+    if (link) m[sec] = link; else delete m[sec];
+    return { ...s, trpgCal: m };
+  }), [apply, sec]);
+  const syncTrpgCal = useCallback((sessions: TrpgCalSession[]): SyncStats => {
+    const link = raw.trpgCal?.[sec];
+    const run = (s: SchedState) => {
+      const cats = catsOf(s, sec);
+      const defaults = {
+        catId: (cats.find(c => c.id === 'sc-trpg') ?? cats[0])?.id ?? '',
+        visibility: link?.visibility ?? 'public',
+      };
+      const mine = s.events.filter(e => inSection(e.secId, sec));
+      const { next, stats } = mergeTrpgCal(mine, sessions, defaults, () => newId());
+      const others = s.events.filter(e => !inSection(e.secId, sec));
+      const events = [...others, ...next.map(e => (e.secId === undefined ? { ...e, ...secStamp(sec) } : e))];
+      const trpgCal = link ? { ...s.trpgCal, [sec]: { ...link, lastSync: Date.now() } } : s.trpgCal;
+      return { state: { ...s, events, trpgCal }, stats };
+    };
+    // 결과 수치는 지금 상태로 미리 계산해 돌려주고, 저장은 최신 상태를 상대로 다시 합친다
+    const { stats } = run(raw);
+    apply(s => run(s).state);
+    return stats;
+  }, [apply, raw, sec]);
   /* 화면이 볼 상태 — 섹션을 지정하면 그 스케줄러 것만, 아니면 전부.
      저장은 위 함수들이 **원본**을 상대로 하므로 다른 스케줄러가 지워지지 않는다 */
   const st: SchedState = useMemo(() => (secId === undefined
@@ -117,6 +147,7 @@ export function useSched(secId?: string) {
   return {
     st, loaded, addEvent, updateEvent, removeEvent,
     patchCat, addCat, removeCat, setCats, setAllowMember, reorderOn,
+    trpgCal: raw.trpgCal?.[sec], setTrpgCalLink, syncTrpgCal,
   };
 }
 
