@@ -6,7 +6,7 @@ import { newId } from './postStore';
 import type { Visibility } from './charStore';
 import { getRawSetting, setSetting } from './settingStore';
 import { MAIN_SEC, inSection, secStamp } from './sectionStore';
-import { mergeTrpgCal, TrpgCalLink, TrpgCalSession, SyncStats } from './trpgCalSync';
+import { mergeTrpgCal, isMassRemoval, EXT_PREFIX, TrpgCalLink, TrpgCalSession, SyncStats } from './trpgCalSync';
 
 export interface SchedCategory { id: string; label: string; color: string }
 
@@ -118,24 +118,35 @@ export function useSched(secId?: string) {
     if (link) m[sec] = link; else delete m[sec];
     return { ...s, trpgCal: m };
   }), [apply, sec]);
-  const syncTrpgCal = useCallback((sessions: TrpgCalSession[]): SyncStats => {
+  /** confirmMassRemoval: 한꺼번에 많이 지워질 때 물어볼 함수 — false 면 지우지 않고 추가·변경만 반영 */
+  const syncTrpgCal = useCallback((
+    sessions: TrpgCalSession[],
+    confirmMassRemoval?: (removed: number, remoteCount: number) => boolean,
+  ): SyncStats => {
     const link = raw.trpgCal?.[sec];
-    const run = (s: SchedState) => {
+    const run = (s: SchedState, keepMissing = false) => {
       const cats = catsOf(s, sec);
       const defaults = {
         catId: (cats.find(c => c.id === 'sc-trpg') ?? cats[0])?.id ?? '',
         visibility: link?.visibility ?? 'public',
       };
       const mine = s.events.filter(e => inSection(e.secId, sec));
-      const { next, stats } = mergeTrpgCal(mine, sessions, defaults, () => newId());
+      const { next, stats } = mergeTrpgCal(mine, sessions, defaults, () => newId(), keepMissing);
       const others = s.events.filter(e => !inSection(e.secId, sec));
       const events = [...others, ...next.map(e => (e.secId === undefined ? { ...e, ...secStamp(sec) } : e))];
       const trpgCal = link ? { ...s.trpgCal, [sec]: { ...link, lastSync: Date.now() } } : s.trpgCal;
       return { state: { ...s, events, trpgCal }, stats };
     };
     // 결과 수치는 지금 상태로 미리 계산해 돌려주고, 저장은 최신 상태를 상대로 다시 합친다
-    const { stats } = run(raw);
-    apply(s => run(s).state);
+    let { stats } = run(raw);
+    let keepMissing = false;
+    const syncedBefore = raw.events.filter(e => inSection(e.secId, sec) && e.extId?.startsWith(EXT_PREFIX)).length;
+    if (isMassRemoval(stats, syncedBefore, sessions.length)
+      && !(confirmMassRemoval?.(stats.removed, sessions.length) ?? false)) {
+      keepMissing = true;
+      stats = run(raw, true).stats;
+    }
+    apply(s => run(s, keepMissing).state);
     return stats;
   }, [apply, raw, sec]);
   /* 화면이 볼 상태 — 섹션을 지정하면 그 스케줄러 것만, 아니면 전부.

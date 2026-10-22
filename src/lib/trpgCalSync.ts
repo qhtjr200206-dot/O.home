@@ -80,11 +80,13 @@ export type SyncStats = { added: number; updated: number; removed: number };
 /**
  * 이 스케줄러(secEvents)의 일정 목록과 받아온 세션을 합친다.
  * 공개범위·카테고리·반복은 처음 넣을 때만 정하고, 이후엔 이쪽에서 바꾼 값을 그대로 둔다.
+ * keepMissing 이면 저쪽에서 사라진 일정도 지우지 않는다(대량 삭제를 사용자가 거절한 경우).
  */
 export function mergeTrpgCal(
   secEvents: SchedEvent[], sessions: TrpgCalSession[],
   defaults: { catId: string; visibility: Visibility },
   newId: () => string,
+  keepMissing = false,
 ): { next: SchedEvent[]; stats: SyncStats } {
   const remote = new Map(sessions.map(x => [EXT_PREFIX + x.id, x]));
   const stats: SyncStats = { added: 0, updated: 0, removed: 0 };
@@ -92,7 +94,10 @@ export function mergeTrpgCal(
   for (const e of secEvents) {
     if (!e.extId?.startsWith(EXT_PREFIX)) { next.push(e); continue; }
     const x = remote.get(e.extId);
-    if (!x) { stats.removed++; continue; }
+    if (!x) {
+      if (keepMissing) next.push(e); else stats.removed++;
+      continue;
+    }
     remote.delete(e.extId);
     const f = toFields(x);
     const changed = (Object.keys(f) as (keyof typeof f)[]).some(k => (e[k] ?? undefined) !== (f[k] ?? undefined));
@@ -107,4 +112,13 @@ export function mergeTrpgCal(
     });
   }
   return { next, stats };
+}
+
+/**
+ * 삭제를 그냥 진행하기엔 위험한 결과인가 — 받아온 일정이 0개이거나(공유 범위를 바꿔 숨긴 경우 등),
+ * 동기화된 일정의 절반 이상(3개 이상)이 한꺼번에 사라지는 경우.
+ */
+export function isMassRemoval(stats: SyncStats, syncedBefore: number, remoteCount: number): boolean {
+  if (stats.removed === 0) return false;
+  return remoteCount === 0 || (stats.removed >= 3 && stats.removed * 2 >= syncedBefore);
 }

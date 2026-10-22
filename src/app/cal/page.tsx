@@ -58,7 +58,17 @@ function CalInner() {
     setTcBusy(true);
     try {
       const sessions = await fetchTrpgCal(shareId);
-      const r = syncTrpgCal(sessions);
+      // 받아온 게 0개이거나 절반 이상이 사라지면 지우기 전에 확인 — 공유 설정 변경 등으로 날아가는 것 방지
+      const r = syncTrpgCal(sessions, (removed, remote) => window.confirm(remote === 0
+        ? `TRPG 캘린더에서 받아온 일정이 0개입니다.
+공유 설정에서 일정을 숨겼을 수도 있어요.
+
+동기화된 일정 ${removed}개를 정말 모두 지울까요?
+(취소하면 지우지 않고 그대로 둡니다)`
+        : `TRPG 캘린더에서 동기화된 일정 ${removed}개가 한꺼번에 사라졌습니다.
+
+정말 지울까요?
+(취소하면 지우지 않고 추가·변경만 반영합니다)`));
       toast(r.added + r.updated + r.removed === 0
         ? `TRPG 캘린더와 이미 같습니다 (${sessions.length}개)`
         : `TRPG 캘린더 동기화 — 추가 ${r.added} · 변경 ${r.updated} · 삭제 ${r.removed}`);
