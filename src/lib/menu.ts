@@ -28,6 +28,7 @@ export const FEATURES: { href: string; label: string }[] = [
   { href: '/memo', label: '메모장' },
   { href: '/guest', label: '방명록' },
   { href: '/intro', label: '소개' },
+  { href: '/cover', label: '커버 메이커' },   // 초대 코드제 — 기본 메뉴에는 넣지 않음
 ];
 
 export const DEFAULT_MENU: MenuItem[] = [

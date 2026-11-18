@@ -44,6 +44,7 @@ export const SETTING_KEYS = [
   'ohome.relqsets.v1', 'ohome.main.v1', 'ohome.sched.v1',
   'ohome.membertags.v1', 'ohome.invite.v1', 'ohome.roadnext.v1', 'ohome.repo.v1',
   'ohome.sections.v1', 'ohome.intro.v1', 'ohome.links.v1',
+  'ohome.coverinvite.v1',   // 커버 메이커 초대 코드 (해시만 저장)
 ];
 
 /** 앱 시작 시 1회 — 서버에 저장된 설정을 전부 받아 캐시 */

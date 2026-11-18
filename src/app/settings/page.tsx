@@ -28,6 +28,7 @@ import {
   IMG_PROTECT_AREAS,
 } from '@/lib/menuStore';
 import { FEATURES } from '@/lib/menu';
+import { CoverInviteRow } from '@/components/cover/CoverInviteRow';
 import { SectionsBlock } from '@/components/settings/SectionList';
 import { useSections, sectionsOf, sectionMenuEntries, MAIN_SEC, inSection } from '@/lib/sectionStore';
 import { useCustomLinks, linkEntries, toInternalPath } from '@/lib/linkStore';
@@ -1047,6 +1048,8 @@ function MemberPane() {
             }}>SAVE</button>
         </div>
       </div>
+      {/* 커버 메이커(/cover) 입장 코드 — 가입코드와 별개 키 */}
+      <CoverInviteRow toast={toast} />
 
       <h3 style={{ marginTop: 26 }}>회원 목록</h3>
       <div className="d">기본 계정(관리자·지인회원)은 삭제할 수 없습니다 — 태그로 그룹화</div>
