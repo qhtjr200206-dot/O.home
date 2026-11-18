@@ -1,7 +1,8 @@
 // 테마 공용 그리기 도구 — 질감(그레인·종이·벽돌)·레이아웃 판정·글자 배치.
 // 질감은 매 프레임 새로 만들지 않고 오프스크린 캔버스로 한 번만 만들어 패턴으로 재사용한다.
 // 모든 애니메이션은 f.time 기반(결정적) — 같은 시각이면 같은 그림 → 내보내기 프레임이 미리보기와 같다.
-import type { FrameState, RenderKit, Rect } from '../types';
+import type { AccentPalette, FrameState, RenderKit, Rect, Tone } from '../types';
+import { hexToRgb } from '../color';
 
 export type Shape = 'tall' | 'square' | 'land';
 /** 화면 모양 — 9:16·4:5 = tall, 1:1 = square, 16:9 = land */
@@ -137,12 +138,44 @@ export function vignette(ctx: CanvasRenderingContext2D, f: FrameState, strength 
   ctx.fillRect(0, 0, W, H);
 }
 
-/** 배경 사진 깔기 — photoLayout이 background일 때 테마들이 공통으로 쓴다 */
+/* ---------- 톤 (다크/라이트) ---------- */
+
+/**
+ * 테마를 「원래 모습」(기존 상수 색) 그대로 그려도 되는지.
+ * 배경색 미지정 + 테마 원래 톤일 때만 true — 사진 전체 배경 배치는 원래 dark(흰 글자)가 기본이다.
+ * 이 경우 결과가 톤 기능 이전과 픽셀 단위로 같게 유지된다.
+ */
+export function isNative(f: FrameState, baseTone: Tone): boolean {
+  if (f.palette.bgCustom) return false;
+  return f.palette.tone === (f.settings.photoLayout === 'background' ? 'dark' : baseTone);
+}
+
+/**
+ * 테마 고유 바탕색 — 배경색을 지정했으면 그 색, 아니면 테마 toneBg(현재 톤).
+ * palette.bg와 달리 사진 전체 배경 배치에서도 덮개색이 아니라 테마 바탕을 돌려준다.
+ */
+export function surfaceOf(f: FrameState, toneBg: (tone: Tone, p: AccentPalette) => string): string {
+  return f.palette.bgCustom ? f.palette.bg : toneBg(f.palette.tone, f.palette);
+}
+
+/** #rrggbb → 'r,g,b' (vignette 등 rgba 문자열 조립용) */
+export const rgbOf = (hex: string) => hexToRgb(hex).join(',');
+
+/** 라이트 톤에서 사진 덮개(흰색·지정색) 최소량 — 이보다 옅으면 먹색 글자가 사진에 묻힌다 */
+export const LIGHT_DIM_MIN = 0.65;
+
+/** 톤에 맞는 사진 덮개 양 (다크는 그대로, 라이트는 최소 LIGHT_DIM_MIN) */
+export function toneDim(f: FrameState, d: number): number {
+  const v = f.palette.tone === 'light' ? Math.max(LIGHT_DIM_MIN, d) : d;
+  return Math.min(0.92, Math.max(0, v));
+}
+
+/** 배경 사진 깔기 — photoLayout이 background일 때 테마들이 공통으로 쓴다 (덮개색 = palette.dim) */
 export function photoBackdrop(ctx: CanvasRenderingContext2D, f: FrameState, kit: RenderKit, extraDim = 0) {
   const s = f.settings;
   kit.drawPhoto(ctx, { x: 0, y: 0, w: f.width, h: f.height }, {
     blur: s.bgBlur * 36 * f.u,
-    dim: Math.min(0.92, s.bgDim + extraDim),
+    dim: toneDim(f, s.bgDim + extraDim),
   });
 }
 

@@ -1,5 +1,5 @@
 // 포인트색 팔레트 · 사진에서 색 추출
-import type { Palette } from './types';
+import type { AccentPalette, Palette, Tone } from './types';
 
 export type RGB = [number, number, number];
 
@@ -72,7 +72,7 @@ export function withLightness(hex: string, l: number, satMul = 1): string {
   return rgbToHex(hslToRgb(h, Math.min(1, s * satMul), Math.max(0, Math.min(1, l))));
 }
 
-export function derivePalette(accent: string): Palette {
+export function derivePalette(accent: string): AccentPalette {
   const a = /^#[0-9a-f]{6}$/i.test(accent) ? accent.toLowerCase() : '#d9a441';
   const lum = luminance(a);
   const [, s] = rgbToHsl(hexToRgb(a));
@@ -136,4 +136,46 @@ export function extractColors(img: CanvasImageSource, n = 5): string[] {
     const [h, s, l] = rgbToHsl(rgb);
     return rgbToHex(hslToRgb(h, Math.min(1, Math.max(s, 0.35) * 1.1), Math.max(0.32, Math.min(0.68, l))));
   });
+}
+
+/** fg를 bg 위에서 대비 min 이상이 될 때까지 흰색(어두운 바탕) 또는 검정(밝은 바탕) 쪽으로 민다 */
+export function ensureContrast(fg: string, bg: string, min: number): string {
+  if (contrast(fg, bg) >= min) return fg;
+  const toward = contrast('#ffffff', bg) >= contrast('#000000', bg) ? '#ffffff' : '#000000';
+  // 이분 탐색 — 원래 색을 최대한 남긴다
+  let lo = 0, hi = 1;
+  for (let i = 0; i < 14; i++) {
+    const m = (lo + hi) / 2;
+    if (contrast(mix(fg, toward, m), bg) >= min) hi = m; else lo = m;
+  }
+  return mix(fg, toward, hi);
+}
+
+/** 바탕색 하나로 톤 판정 — 흰 글자와 검은 글자 중 대비가 큰 쪽 */
+export function toneOf(bg: string): Tone {
+  return contrast(bg, '#ffffff') >= contrast(bg, '#000000') ? 'dark' : 'light';
+}
+
+/** 바탕색 + 톤 → 글자·면·선 색. 본문은 가능하면 7, 불가능하면 최대 대비. 보조색은 4.5 이상을 목표로 한다. */
+export function surfacePalette(ap: AccentPalette, tone: Tone, bg: string, bgCustom: boolean, dim: string): Palette {
+  const b = /^#[0-9a-f]{6}$/i.test(bg) ? bg.toLowerCase() : (tone === 'dark' ? '#111111' : '#f4f1ea');
+  const dark = tone === 'dark';
+  // 바탕 색조를 아주 조금 품은 흰색/먹색에서 시작
+  const inkBase = dark ? mix('#ffffff', b, 0.06) : mix('#141414', b, 0.12);
+  const ink = ensureContrast(inkBase, b, 7);
+  const inkSoft = ensureContrast(mix(ink, b, 0.38), b, 4.6);
+  return {
+    ...ap,
+    tone,
+    bgCustom,
+    bg: b,
+    bgAlt: dark ? mix(b, '#ffffff', 0.08) : mix(b, '#000000', 0.06),
+    ink,
+    inkSoft,
+    inkFaint: mix(ink, b, 0.78),
+    line: mix(ink, b, 0.82),
+    accentInk: ensureContrast(ap.accent, b, 3),
+    shadow: dark ? '#000000' : mix(b, '#000000', 0.82),
+    dim,
+  };
 }

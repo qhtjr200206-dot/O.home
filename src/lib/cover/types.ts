@@ -23,6 +23,10 @@ export type VisualizerId = 'none' | 'bars' | 'wave' | 'radial' | 'dots';
 export type MotionId = 'none' | 'sway' | 'breathe' | 'kenburns';
 /** 사진 배치 — cover: 한쪽(또는 테마가 정한 자리)에 커버 / background: 전체 화면 배경 */
 export type PhotoLayout = 'cover' | 'background';
+/** 실제로 그려지는 톤 */
+export type Tone = 'dark' | 'light';
+/** 사용자 설정 톤 — auto = 테마 원래 톤 (사진 '전체 배경' 배치일 때는 dark) */
+export type ToneSetting = 'auto' | Tone;
 
 export interface CoverSettings {
   v: 1;
@@ -48,6 +52,10 @@ export interface CoverSettings {
   bgDim: number;
   /** 배경 사진 흐림 0 ~ 1 (테마가 실제 px로 환산) */
   bgBlur: number;
+  /** 다크/라이트 전환 (auto = 테마 기본) */
+  tone: ToneSetting;
+  /** 배경색 #rrggbb — 빈 문자열이면 테마 기본. 값이 있으면 이 색이 바탕이 되고 톤은 이 색의 밝기로 정해진다 */
+  bgColor: string;
   title: string;
   artist: string;
   /** 문구 1개 (짧은 한 줄 소개·인용) */
@@ -71,6 +79,8 @@ export const DEFAULT_SETTINGS: CoverSettings = {
   showProgress: true,
   bgDim: 0.45,
   bgBlur: 0.5,
+  tone: 'auto',
+  bgColor: '',
   title: '',
   artist: '',
   phrase: '',
@@ -103,6 +113,9 @@ export function normalizeSettings(raw: unknown): CoverSettings {
     showProgress: pick('showProgress', bool),
     bgDim: pick('bgDim', num(0, 1)),
     bgBlur: pick('bgBlur', num(0, 1)),
+    tone: pick('tone', inList(['auto', 'dark', 'light'])),
+    // 소문자로 통일 (#ABCDEF로 저장된 값도 받는다)
+    bgColor: (typeof o.bgColor === 'string' && /^#[0-9a-f]{6}$/i.test(o.bgColor) ? o.bgColor.toLowerCase() : ''),
     title: pick('title', str(200)),
     artist: pick('artist', str(200)),
     phrase: pick('phrase', str(300)),
@@ -114,13 +127,42 @@ export interface LyricLine { time: number; text: string }
 
 export interface Rect { x: number; y: number; w: number; h: number }
 
-/** 포인트색에서 파생한 팔레트 — color.ts의 derivePalette가 만든다 */
-export interface Palette {
+/** 포인트색만으로 정해지는 부분 — 테마의 toneBg가 받는다 */
+export interface AccentPalette {
   accent: string;        // 원색
   accentSoft: string;    // 배경에 깔 옅은 톤
   accentDeep: string;    // 어두운 톤
   onAccent: string;      // 포인트색 위 글자색 (#fff 또는 진한 색)
   isDark: boolean;       // 포인트색 자체가 어두운지
+}
+
+/**
+ * 프레임 팔레트 — tone.ts의 paletteFor(settings)가 만든다 (포인트색 + 톤 + 배경색).
+ * 테마는 하드코딩 색 대신 이 값을 쓴다. 바탕에 바로 놓이는 글자는 ink/inkSoft를 쓰면 대비가 보장된다.
+ */
+export interface Palette extends AccentPalette {
+  /** 실제 톤 (auto·배경색 반영 후) */
+  tone: Tone;
+  /** 사용자가 배경색을 지정했는지 (true면 bg = 그 색) */
+  bgCustom: boolean;
+  /** 바탕색. 사진 전체 배경 배치면 사진 위에 덮는 색(= dim)과 같다 */
+  bg: string;
+  /** 바탕에서 한 단계 떨어진 면 (카드·패널·띠) */
+  bgAlt: string;
+  /** 본문 글자 — 가능한 경우 bg 대비 ≥ 7 (중간 밝기는 최대 대비 선택) */
+  ink: string;
+  /** 보조 글자 — bg 대비 ≥ 4.5 */
+  inkSoft: string;
+  /** 흐린 장식 (트랙·눈금 등, 대비 요구 없음) */
+  inkFaint: string;
+  /** 구분선 */
+  line: string;
+  /** bg 위에서 읽히는 포인트색 (대비 ≥ 3) — 포인트색 글자·아이콘용 */
+  accentInk: string;
+  /** 그림자 색 (#rrggbb, 투명도는 쓰는 쪽이 alpha()로) */
+  shadow: string;
+  /** 사진 어둡게(bgDim) 오버레이 색 — dark: 검정 계열, light: 흰색 계열, 배경색 지정 시 그 색 */
+  dim: string;
 }
 
 /** 한 프레임을 그리는 데 필요한 모든 것 — 미리보기·PNG·MP4·GIF가 같은 값을 넣는다 */
@@ -220,6 +262,10 @@ export interface ThemeDef {
   desc: string;
   /** 테마가 어울리는 기본 포인트색 (테마 고를 때 추천) */
   suggestedAccent?: string;
+  /** 테마 원래 톤 (tone: 'auto'일 때) */
+  baseTone: Tone;
+  /** 톤별 바탕 대표색 — 배경색을 지정하지 않았을 때 palette.bg가 되고, ink 등이 이 색 기준으로 계산된다 */
+  toneBg: (tone: Tone, p: AccentPalette) => string;
   /** 배경 — 움직임 변환 바깥 (가장자리가 비지 않게 화면을 꽉 채운다) */
   background: (ctx: CanvasRenderingContext2D, f: FrameState, kit: RenderKit) => void;
   /** 전경 — render.ts가 sway/breathe 변환을 걸고 부른다 */

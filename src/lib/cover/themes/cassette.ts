@@ -1,7 +1,11 @@
 // 카세트 — 반투명 플라스틱 테이프, 손글씨 라벨, 진행률만큼 감기는 두 릴.
-import type { FrameState, RenderKit, ThemeDef } from '../types';
-import { alpha, mix } from '../color';
-import { shapeOf, titleOf, artistOf, text, rr, photoBackdrop, paper, withShadow, grain, setSpacing } from './_paint';
+import type { AccentPalette, FrameState, RenderKit, ThemeDef, Tone } from '../types';
+import { alpha, ensureContrast, mix } from '../color';
+import { shapeOf, titleOf, artistOf, text, rr, photoBackdrop, paper, withShadow, grain, setSpacing, vignette, isNative, surfaceOf } from './_paint';
+
+/** 톤별 바탕 — 라이트: 파스텔 책상 / 다크: 밤의 책상 위 어두운 펠트 매트 */
+const deskBg = (tone: Tone, p: AccentPalette) =>
+  tone === 'dark' ? mix(p.accentDeep, '#18171b', 0.62) : mix(p.accentSoft, '#efe7da', 0.45);
 
 function reel(ctx: CanvasRenderingContext2D, f: FrameState, cx: number, cy: number, tapeR: number, hubR: number, ang: number) {
   const u = f.u;
@@ -30,16 +34,17 @@ function drawCassette(ctx: CanvasRenderingContext2D, f: FrameState, kit: RenderK
   const u = f.u, s = f.settings;
   const h = w * 0.63;
   const k = w / 1000;   // 카세트 내부 좌표 1000 기준
-  const shell = mix('#1d1d21', f.palette.accentDeep, 0.35);
+  const night = f.palette.tone === 'dark' && s.photoLayout === 'cover';
+  const shell = night ? mix('#34343b', f.palette.accent, 0.14) : mix('#1d1d21', f.palette.accentDeep, 0.35);
   // 본체
-  withShadow(ctx, 60 * u, 30 * u, 'rgba(0,0,0,0.45)', () => {
+  withShadow(ctx, 60 * u, 30 * u, night ? 'rgba(0,0,0,0.7)' : 'rgba(0,0,0,0.45)', () => {
     rr(ctx, x, y, w, h, 34 * k); ctx.fillStyle = shell; ctx.fill();
   });
   // 플라스틱 하이라이트
   const hg = ctx.createLinearGradient(x, y, x, y + h);
   hg.addColorStop(0, 'rgba(255,255,255,0.14)'); hg.addColorStop(0.5, 'rgba(255,255,255,0.02)'); hg.addColorStop(1, 'rgba(0,0,0,0.2)');
   rr(ctx, x, y, w, h, 34 * k); ctx.fillStyle = hg; ctx.fill();
-  ctx.strokeStyle = 'rgba(255,255,255,0.12)'; ctx.lineWidth = 2 * u; ctx.stroke();
+  ctx.strokeStyle = night ? 'rgba(255,255,255,0.22)' : 'rgba(255,255,255,0.12)'; ctx.lineWidth = 2 * u; ctx.stroke();
   // 나사 4개
   for (const [sx, sy] of [[40, 40], [960, 40], [40, 590], [960, 590]]) {
     ctx.beginPath(); ctx.arc(x + sx * k, y + sy * k, 13 * k, 0, Math.PI * 2); ctx.fillStyle = '#9a9aa0'; ctx.fill();
@@ -98,17 +103,34 @@ export const cassette: ThemeDef = {
   name: '카세트',
   desc: '손글씨 라벨의 카세트테이프 — 진행만큼 감기는 릴',
   suggestedAccent: '#e5533d',
+  baseTone: 'light',
+  toneBg: deskBg,
   background(ctx, f, kit) {
     if (f.settings.photoLayout === 'background') { photoBackdrop(ctx, f, kit); return; }
-    // 파스텔 책상 — 포인트색의 옅은 톤 + 종이 질감
-    paper(ctx, f, { x: 0, y: 0, w: f.width, h: f.height }, mix(f.palette.accentSoft, '#efe7da', 0.45), 0.25);
+    const W = f.width, H = f.height, p = f.palette;
+    if (p.tone === 'light') {
+      // 파스텔 책상 — 포인트색의 옅은 톤 + 종이 질감
+      paper(ctx, f, { x: 0, y: 0, w: W, h: H }, surfaceOf(f, deskBg), 0.25);
+      return;
+    }
+    // 밤의 책상 — 펠트 결(섬유 질감 진하게) + 스탠드 불빛이 왼쪽 위에서 따뜻하게 떨어진다
+    paper(ctx, f, { x: 0, y: 0, w: W, h: H }, surfaceOf(f, deskBg), 0.4);
+    const g = ctx.createRadialGradient(W * 0.25, H * 0.1, 0, W * 0.25, H * 0.1, Math.max(W, H) * 0.9);
+    g.addColorStop(0, alpha(mix(p.accent, '#ffd9a0', 0.6), 0.2));
+    g.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+    vignette(ctx, f, 0.5);
   },
   foreground(ctx, f, kit) {
     const u = f.u, W = f.width, H = f.height, s = f.settings;
     const shape = shapeOf(f);
     const pad = 70 * u;
-    const dark = s.photoLayout === 'background';
-    const ink = dark ? '#fbf7ef' : '#1f1d1a', sub = dark ? 'rgba(251,247,239,0.7)' : 'rgba(31,29,26,0.62)';
+    const p = f.palette;
+    const nat = isNative(f, 'light');
+    const bgPhoto = s.photoLayout === 'background';
+    // 원래 모습: 책상 위 먹색 / 사진 배경 위 흰색. 그 밖엔 팔레트
+    const ink = nat ? (bgPhoto ? '#fbf7ef' : '#1f1d1a') : p.ink;
+    const sub = nat ? (bgPhoto ? 'rgba(251,247,239,0.7)' : 'rgba(31,29,26,0.62)') : p.inkSoft;
     let cw: number, cx: number, cy: number, lx: number, ly: number, lw: number, lh: number;
     if (shape === 'land') {
       cw = W * 0.5; cx = pad * 1.3; cy = (H - cw * 0.63) / 2 - 20 * u;
@@ -132,7 +154,7 @@ export const cassette: ThemeDef = {
       const py = shape === 'tall' ? cy - 50 * u : shape === 'land' ? ly - 30 * u : H - pad * 0.6;
       text(ctx, kit, s.phrase, shape === 'land' ? lx : W / 2, py, { font: kit.font(30 * u, 500), color: sub, align: shape === 'land' ? 'left' : 'center', maxW: shape === 'land' ? lw : W - pad * 2 });
     }
-    kit.drawLyrics(ctx, { x: lx, y: ly, w: lw, h: lh }, { align: shape === 'land' ? 'left' : 'center', size: (shape === 'tall' ? 58 : 46) * u, color: ink, dimColor: sub, weight: 700, lineHeight: 1.45 });
+    kit.drawLyrics(ctx, { x: lx, y: ly, w: lw, h: lh }, { align: shape === 'land' ? 'left' : 'center', size: (shape === 'tall' ? 58 : 46) * u, color: ink, dimColor: nat ? sub : ink, weight: 700, lineHeight: 1.45 });
     // 진행 — 테이프 카운터 숫자
     if (s.showProgress) {
       const cxp = shape === 'land' ? lx : W / 2;
@@ -144,7 +166,9 @@ export const cassette: ThemeDef = {
       const tw = ctx.measureText(counter).width + 40 * u;
       const bx = shape === 'land' ? cxp : cxp - tw / 2 - 150 * u;
       rr(ctx, bx, yy - 40 * u, tw, 54 * u, 10 * u); ctx.fillStyle = '#121214'; ctx.fill();
-      text(ctx, kit, counter, bx + 20 * u, yy - 2 * u, { font, color: f.palette.accent, spacing: 6 * u });
+      // 어두운 바탕에선 카운터 창 테두리로 바탕과 분리
+      if (p.tone === 'dark' && !nat) { ctx.strokeStyle = p.line; ctx.lineWidth = 2 * u; ctx.stroke(); }
+      text(ctx, kit, counter, bx + 20 * u, yy - 2 * u, { font, color: nat ? p.accent : ensureContrast(p.accent, '#121214', 3.5), spacing: 6 * u });
       ctx.restore();
       text(ctx, kit, `${kit.fmtTime(f.time)} / ${kit.fmtTime(f.duration)}`, bx + tw + 22 * u, yy - 4 * u, { font: kit.font(22 * u, 400, kit.mono), color: sub });
     }

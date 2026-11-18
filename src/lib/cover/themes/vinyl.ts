@@ -1,15 +1,25 @@
 // LP 턴테이블 — 돌아가는 검은 레코드, 가운데 라벨에 사진, 톤암은 진행률만큼 안쪽으로.
-import type { FrameState, RenderKit, ThemeDef } from '../types';
+import type { AccentPalette, FrameState, RenderKit, ThemeDef, Tone } from '../types';
 import { alpha, mix } from '../color';
-import { shapeOf, titleOf, artistOf, text, progressBar, withShadow, rr, photoBackdrop, grain, vignette, setSpacing } from './_paint';
+import { shapeOf, titleOf, artistOf, text, progressBar, withShadow, rr, photoBackdrop, grain, vignette, setSpacing, paper, isNative, surfaceOf, rgbOf } from './_paint';
 
 const RPM = 33.333;
 
 function record(ctx: CanvasRenderingContext2D, f: FrameState, kit: RenderKit, cx: number, cy: number, R: number) {
   const u = f.u;
   const ang = f.time * (RPM / 60) * Math.PI * 2;
+  const light = f.palette.tone === 'light';
+  if (light) {
+    // 밝은 데스크: 판 아래로 살짝 보이는 알루미늄 플래터 테두리
+    withShadow(ctx, 50 * u, 22 * u, alpha(f.palette.shadow, 0.32), () => {
+      ctx.beginPath(); ctx.arc(cx, cy, R * 1.035, 0, Math.PI * 2);
+      const pg = ctx.createLinearGradient(cx - R, cy - R, cx + R, cy + R);
+      pg.addColorStop(0, '#f2f2f0'); pg.addColorStop(0.5, '#b9b8b4'); pg.addColorStop(1, '#8e8d89');
+      ctx.fillStyle = pg; ctx.fill();
+    });
+  }
   // 판 그림자
-  withShadow(ctx, 70 * u, 30 * u, 'rgba(0,0,0,0.6)', () => {
+  withShadow(ctx, 70 * u, 30 * u, light ? 'rgba(0,0,0,0.35)' : 'rgba(0,0,0,0.6)', () => {
     ctx.beginPath(); ctx.arc(cx, cy, R, 0, Math.PI * 2); ctx.fillStyle = '#0b0b0c'; ctx.fill();
   });
   // 홈 (가는 동심원 — 밝기를 번갈아)
@@ -74,8 +84,9 @@ function tonearm(ctx: CanvasRenderingContext2D, f: FrameState, cx: number, cy: n
   const len = R * 1.3;
   ctx.save();
   ctx.translate(px, py);
+  const sh = f.palette.tone === 'light' ? 0.6 : 1;   // 밝은 데스크에선 그림자를 옅게
   // 받침
-  withShadow(ctx, 20 * u, 8 * u, 'rgba(0,0,0,0.5)', () => {
+  withShadow(ctx, 20 * u, 8 * u, `rgba(0,0,0,${0.5 * sh})`, () => {
     ctx.beginPath(); ctx.arc(0, 0, 34 * u, 0, Math.PI * 2);
     const bg = ctx.createRadialGradient(-8 * u, -8 * u, 2, 0, 0, 34 * u);
     bg.addColorStop(0, '#e9e9ea'); bg.addColorStop(1, '#8d8f93');
@@ -83,7 +94,7 @@ function tonearm(ctx: CanvasRenderingContext2D, f: FrameState, cx: number, cy: n
   });
   ctx.rotate(a);
   // 팔
-  withShadow(ctx, 14 * u, 10 * u, 'rgba(0,0,0,0.45)', () => {
+  withShadow(ctx, 14 * u, 10 * u, `rgba(0,0,0,${0.45 * sh})`, () => {
     ctx.lineCap = 'round';
     ctx.strokeStyle = '#d8d9dc'; ctx.lineWidth = 9 * u;
     ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(0, len * 0.86); ctx.lineTo(-len * 0.06, len); ctx.stroke();
@@ -101,32 +112,53 @@ function tonearm(ctx: CanvasRenderingContext2D, f: FrameState, cx: number, cy: n
   ctx.restore();
 }
 
+/** 톤별 바탕 — 다크: 어두운 원목 데스크 / 라이트: 크림색 밝은 원목(메이플) 데스크 */
+const deskBg = (tone: Tone, p: AccentPalette) =>
+  tone === 'dark' ? mix(p.accentDeep, '#120f0d', 0.7) : mix(p.accentSoft, '#eee3cf', 0.62);
+
 export const vinyl: ThemeDef = {
   id: 'vinyl',
   name: 'LP 턴테이블',
   desc: '돌아가는 레코드와 톤암 — 라벨에 커버 사진',
   suggestedAccent: '#d9a441',
+  baseTone: 'dark',
+  toneBg: deskBg,
   background(ctx, f, kit) {
-    const W = f.width, H = f.height;
+    const W = f.width, H = f.height, p = f.palette;
+    const light = p.tone === 'light';
     if (f.settings.photoLayout === 'background') {
       photoBackdrop(ctx, f, kit, 0.15);
-    } else {
+    } else if (!light) {
       // 어두운 원목 데스크 위 조명 — 포인트색으로 살짝 물든 따뜻한 바탕
-      ctx.fillStyle = mix(f.palette.accentDeep, '#120f0d', 0.7);
+      ctx.fillStyle = surfaceOf(f, deskBg);
       ctx.fillRect(0, 0, W, H);
       const g = ctx.createRadialGradient(W * 0.38, H * 0.32, 0, W * 0.38, H * 0.32, Math.max(W, H) * 0.8);
-      g.addColorStop(0, alpha(f.palette.accent, 0.28));
+      g.addColorStop(0, alpha(p.accent, 0.28));
       g.addColorStop(1, 'rgba(0,0,0,0)');
       ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+    } else {
+      // 밝은 원목 데스크 — 무광 질감 + 창가 햇빛(왼쪽 위) + 포인트색 반사광
+      paper(ctx, f, { x: 0, y: 0, w: W, h: H }, surfaceOf(f, deskBg), 0.2);
+      const g = ctx.createRadialGradient(W * 0.3, H * 0.22, 0, W * 0.3, H * 0.22, Math.max(W, H) * 0.85);
+      g.addColorStop(0, 'rgba(255,253,246,0.55)');
+      g.addColorStop(0.55, alpha(p.accent, 0.06));
+      g.addColorStop(1, 'rgba(255,255,255,0)');
+      ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
     }
-    vignette(ctx, f, 0.6);
-    grain(ctx, f, 0.07, 0);
+    // 라이트: 사진 배경이면 덮개색으로 가장자리를 밝게, 데스크면 따뜻한 갈색 그늘
+    if (light && f.settings.photoLayout === 'background') vignette(ctx, f, 0.35, rgbOf(p.dim));
+    else if (light) vignette(ctx, f, 0.22, p.bgCustom ? rgbOf(mix(p.bg, '#000000', 0.5)) : '92,64,36');
+    else vignette(ctx, f, 0.6);
+    grain(ctx, f, light ? 0.05 : 0.07, 0);
   },
   foreground(ctx, f, kit) {
-    const u = f.u, W = f.width, H = f.height, s = f.settings;
+    const u = f.u, W = f.width, H = f.height, s = f.settings, p = f.palette;
     const shape = shapeOf(f);
     const pad = 76 * u;
-    const ink = '#f5efe6', sub = 'rgba(245,239,230,0.62)';
+    const nat = isNative(f, 'dark');
+    const ink = nat ? '#f5efe6' : p.ink, sub = nat ? 'rgba(245,239,230,0.62)' : p.inkSoft;
+    // 바탕 위 포인트색 (밝은 바탕에서도 읽히게)
+    const acc = nat ? p.accent : p.accentInk;
     let cx: number, cy: number, R: number;
     let tx: number, ty: number, tw: number, ly: number, lh: number;
     if (shape === 'land') {
@@ -146,7 +178,7 @@ export const vinyl: ThemeDef = {
     // 원형 비주얼라이저는 판 둘레, 나머지는 아래 띠
     if (s.visualizer === 'radial') {
       const VR = R * 1.32;
-      kit.drawVisualizer(ctx, { x: cx - VR, y: cy - VR, w: VR * 2, h: VR * 2 }, { color: f.palette.accent, color2: ink, innerRadius: 1.03 / 1.32, glow: 8 * u });
+      kit.drawVisualizer(ctx, { x: cx - VR, y: cy - VR, w: VR * 2, h: VR * 2 }, { color: acc, color2: ink, innerRadius: 1.03 / 1.32, glow: 8 * u });
     }
     record(ctx, f, kit, cx, cy, R);
     if (cx + R * 1.1 < W) tonearm(ctx, f, cx, cy, R);   // 회전축이 화면 밖이면 생략
@@ -154,27 +186,27 @@ export const vinyl: ThemeDef = {
     // 제목 묶음 — 레이블처럼 작은 모노 머리말 + 큰 제목
     const big = shape === 'tall' ? 64 : 52;
     ctx.save();
-    text(ctx, kit, 'NOW SPINNING', tx, ty, { font: kit.font(18 * u, 700, kit.mono), color: f.palette.accent, spacing: 4 * u });
+    text(ctx, kit, 'NOW SPINNING', tx, ty, { font: kit.font(18 * u, 700, kit.mono), color: acc, spacing: 4 * u });
     text(ctx, kit, titleOf(f), tx, ty + (big + 18) * u, { font: kit.font(big * u, 800), color: ink, maxW: tw });
     text(ctx, kit, artistOf(f), tx, ty + (big + 66) * u, { font: kit.font(30 * u, 500), color: sub, maxW: tw });
     if (s.phrase) {
-      ctx.fillStyle = alpha(f.palette.accent, 0.9);
+      ctx.fillStyle = alpha(acc, 0.9);
       ctx.fillRect(tx, ty + (big + 96) * u, 36 * u, 3 * u);
       text(ctx, kit, s.phrase, tx + 50 * u, ty + (big + 106) * u, { font: kit.font(24 * u, 500), color: sub, maxW: tw - 50 * u });
     }
     ctx.restore();
 
     if (lh > 50 * u) {
-      kit.drawLyrics(ctx, { x: tx, y: ly, w: tw, h: lh }, { align: 'left', size: (shape === 'land' ? 42 : 46) * u, color: ink, dimColor: sub, weight: 700, lineHeight: 1.45 });
+      kit.drawLyrics(ctx, { x: tx, y: ly, w: tw, h: lh }, { align: 'left', size: (shape === 'land' ? 42 : 46) * u, color: ink, dimColor: nat ? sub : ink, weight: 700, lineHeight: 1.45 });
     }
     // 아래 띠: 비주얼라이저 + 진행 막대 (타임코드)
     const bx = shape === 'land' ? tx : pad, bw = shape === 'land' ? tw : W - pad * 2;
     const by = H - pad;
     if (s.visualizer !== 'none' && s.visualizer !== 'radial') {
-      kit.drawVisualizer(ctx, { x: bx, y: by - 150 * u, w: bw, h: 80 * u }, { color: f.palette.accent, color2: ink, alpha: 0.85, count: 64 });
+      kit.drawVisualizer(ctx, { x: bx, y: by - 150 * u, w: bw, h: 80 * u }, { color: acc, color2: ink, alpha: 0.85, count: 64 });
     }
     if (s.showProgress) {
-      progressBar(ctx, bx, by - 40 * u, bw, 4 * u, kit.progress, { track: 'rgba(255,255,255,0.16)', fill: f.palette.accent, knob: ink, knobR: 8 * u });
+      progressBar(ctx, bx, by - 40 * u, bw, 4 * u, kit.progress, { track: nat ? 'rgba(255,255,255,0.16)' : p.line, fill: acc, knob: ink, knobR: 8 * u });
       ctx.save(); setSpacing(ctx, 1.5 * u);
       text(ctx, kit, kit.fmtTime(f.time), bx, by, { font: kit.font(20 * u, 400, kit.mono), color: sub });
       text(ctx, kit, kit.fmtTime(f.duration), bx + bw, by, { font: kit.font(20 * u, 400, kit.mono), color: sub, align: 'right' });

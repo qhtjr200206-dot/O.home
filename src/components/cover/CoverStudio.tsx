@@ -6,13 +6,14 @@ import { useAuth } from '@/lib/auth';
 import { useToast } from '@/components/ui/Toast';
 import {
   DEFAULT_SETTINGS, RATIO_SIZE, type CoverSettings, type LyricLine, type Ratio, type ThemeId, type FontId,
-  type VisualizerId, type MotionId, type ExportInput, type ExportResult,
+  type VisualizerId, type MotionId, type ExportInput, type ExportResult, type ToneSetting,
 } from '@/lib/cover/types';
 import { makeFrame, renderFrame } from '@/lib/cover/render';
 import { CoverAudio } from '@/lib/cover/audio';
 import { THEMES, getTheme } from '@/lib/cover/themes';
 import { FONTS, loadCoverFont, preloadFontPreviews } from '@/lib/cover/fonts';
-import { derivePalette, extractColors } from '@/lib/cover/color';
+import { derivePalette, extractColors, withLightness } from '@/lib/cover/color';
+import { paletteFor, resolveTone } from '@/lib/cover/tone';
 import { parseLyrics, toLRC, lineIndexAt, isSynced } from '@/lib/cover/lyrics';
 import { exportPNG, exportMP4, exportGIF, mp4Support } from '@/lib/cover/export';
 import {
@@ -90,7 +91,7 @@ function ThemeThumb({ id, settings, photo, lyrics, time, ver }: { id: ThemeId; s
       renderFrame(ctx, makeFrame({
         settings: s, width: c.width, height: c.height, time, duration: 30, playing: false,
         image: photo?.bmp ?? null, imageW: photo?.w ?? 0, imageH: photo?.h ?? 0, lyrics,
-        spectrum: null, waveform: null, level: 0, palette: derivePalette(s.accent),
+        spectrum: null, waveform: null, level: 0, palette: paletteFor(s),
       }));
     }, 260);
     return () => clearTimeout(t);
@@ -215,7 +216,7 @@ export function CoverStudio() {
     renderFrame(ctx, makeFrame({
       settings: L.settings, width: c.width, height: c.height, time, duration: L.duration, playing: run,
       image: L.photo?.bmp ?? null, imageW: L.photo?.w ?? 0, imageH: L.photo?.h ?? 0, lyrics: L.lyrics,
-      spectrum: smp.spectrum, waveform: smp.waveform, level: smp.level, palette: derivePalette(L.settings.accent),
+      spectrum: smp.spectrum, waveform: smp.waveform, level: smp.level, palette: paletteFor(L.settings),
     }));
     return time;
   }, [audio, getTime]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -470,6 +471,10 @@ export function CoverStudio() {
 
           {tab === 'theme' && (
             <div className={css.pane}>
+              <section className={css.sec}>
+                <span className={css.secTitle}>톤</span>
+                <ToneControls settings={settings} set={set} chips={palette} compact />
+              </section>
               <div className={css.themeGrid}>
                 {THEMES.map(t => (
                   <button key={t.id} className={`${css.themeCard} ${settings.theme === t.id ? css.themeOn : ''}`} aria-pressed={settings.theme === t.id}
@@ -517,6 +522,10 @@ export function CoverStudio() {
                     </div>
                   </>
                 ) : <p className={css.hint}>사진을 올리면 사진에서 어울리는 색을 뽑아 추천합니다.</p>}
+              </section>
+              <section className={css.sec}>
+                <span className={css.secTitle}>톤 · 배경색</span>
+                <ToneControls settings={settings} set={set} chips={palette} />
               </section>
               <section className={css.sec}>
                 <span className={css.secTitle}>폰트</span>
@@ -757,15 +766,66 @@ function NumField({ label, value, max, onChange }: { label: string; value: numbe
   );
 }
 
-function HexInput({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+/** 사진이 없을 때 배경 추천 — 어두운 3 · 밝은 3 */
+const BG_STOCK = ['#111214', '#16192b', '#2a1418', '#f6f3ec', '#e4ebe0', '#f3e6e4'];
+
+/** 톤(자동/다크/라이트) + 배경색 — 테마·스타일 탭 공용 */
+function ToneControls({ settings, set, chips, compact }: {
+  settings: CoverSettings; set: <K extends keyof CoverSettings>(k: K, v: CoverSettings[K]) => void; chips: string[]; compact?: boolean;
+}) {
+  const eff = resolveTone(settings);
+  const effName = eff === 'dark' ? '다크' : '라이트';
+  // 사진 추천색마다 깊은 밤색 하나·옅은 종이색 하나
+  const recs = chips.length > 0
+    ? Array.from(new Set(chips.slice(0, 3).flatMap(c => [withLightness(c, 0.11, 0.65), withLightness(c, 0.93, 0.55)])))
+    : BG_STOCK;
+  const pickTone = (v: ToneSetting) => {
+    // 배경색이 지정돼 있으면 톤은 배경 밝기를 따르므로, 톤을 고르면 배경색을 풀어 준다
+    if (settings.bgColor) set('bgColor', '');
+    set('tone', v);
+  };
+  return (
+    <>
+      <Seg<ToneSetting> label="톤" value={settings.bgColor ? ('' as ToneSetting) : settings.tone} onChange={pickTone}
+        options={[{ v: 'auto', t: '자동' }, { v: 'dark', t: '다크' }, { v: 'light', t: '라이트' }]} />
+      <p className={css.hint}>
+        {settings.bgColor
+          ? `배경색을 지정해서 톤은 배경 밝기에 맞춰 ${effName}로 그려집니다. 톤을 누르면 테마 기본 배경으로 돌아갑니다.`
+          : settings.tone === 'auto' ? `테마 원래 톤(지금은 ${effName})으로 그립니다.` : `${effName} 버전으로 그립니다.`}
+      </p>
+      {!compact && (
+        <>
+          <span className={css.labelSub}>배경색</span>
+          <div className={css.colorRow}>
+            <label className={css.colorWell} style={{ background: settings.bgColor || paletteFor(settings).bg }}>
+              <input type="color" value={settings.bgColor || paletteFor(settings).bg} onChange={e => set('bgColor', e.target.value.toLowerCase())} aria-label="배경색 고르기" />
+            </label>
+            <HexInput value={settings.bgColor} onChange={v => set('bgColor', v)} label="배경색 HEX" placeholder="테마 기본" />
+            <button className={css.btn} disabled={!settings.bgColor} onClick={() => set('bgColor', '')}>기본으로</button>
+          </div>
+          <span className={css.labelSub}>{chips.length > 0 ? '사진에서 뽑은 배경 추천' : '배경 추천'}</span>
+          <div className={css.chips}>
+            {recs.map(c => (
+              <button key={c} className={`${css.chip} ${c === settings.bgColor ? css.chipOn : ''}`} style={{ background: c }} aria-label={`배경 추천색 ${c}`}
+                onClick={() => set('bgColor', c)} />
+            ))}
+          </div>
+          <p className={css.hint}>글자색·보조색은 배경 밝기에 맞춰 자동 조정됩니다. 「전체 배경」에서는 사진 위에 색을 덮으며 사진에 따라 대비가 달라질 수 있습니다.</p>
+        </>
+      )}
+    </>
+  );
+}
+
+function HexInput({ value, onChange, label = '포인트색 HEX', placeholder }: { value: string; onChange: (v: string) => void; label?: string; placeholder?: string }) {
   const [v, setV] = useState(value);
   useEffect(() => setV(value), [value]);
   return (
-    <input className={`${css.input} ${css.hexInput}`} value={v} maxLength={7} aria-label="포인트색 HEX"
+    <input className={`${css.input} ${css.hexInput}`} value={v} maxLength={7} aria-label={label} placeholder={placeholder}
       onChange={e => {
-        const t = e.target.value.startsWith('#') ? e.target.value : '#' + e.target.value;
+        const t = e.target.value === '' ? '' : e.target.value.startsWith('#') ? e.target.value : '#' + e.target.value;
         setV(t);
-        if (/^#[0-9a-f]{6}$/i.test(t)) onChange(t.toLowerCase());
+        if ((t === '' && label === '배경색 HEX') || /^#[0-9a-f]{6}$/i.test(t)) onChange(t.toLowerCase());
       }} />
   );
 }

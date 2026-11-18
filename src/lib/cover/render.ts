@@ -8,6 +8,7 @@ import type { CoverSettings, FrameState, LyricLine, MotionState, MotionId, Palet
 import { getTheme } from './themes';
 import { fontFamily, fontCss, MONO_FAMILY } from './fonts';
 import { lineIndexAt } from './lyrics';
+import { alpha } from './color';
 
 const TAU = Math.PI * 2;
 const clamp = (v: number, a: number, b: number) => (v < a ? a : v > b ? b : v);
@@ -655,7 +656,8 @@ export function buildKit(f: FrameState): RenderKit {
       drawPlaceholder(ctx, f, rect, gray, blur > 0);
     }
     if (opts.dim && opts.dim > 0) {
-      ctx.fillStyle = `rgba(0,0,0,${clamp(opts.dim, 0, 1)})`;
+      // 덮개 색은 톤을 따른다 (dark: 검정, light: 흰색, 배경색 지정 시 그 색)
+      ctx.fillStyle = alpha(f.settings.photoLayout === 'background' ? f.palette.dim : '#000000', clamp(opts.dim, 0, 1));
       ctx.fillRect(rect.x, rect.y, rect.w, rect.h);
     }
     ctx.restore();

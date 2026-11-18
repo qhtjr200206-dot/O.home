@@ -1,7 +1,10 @@
 // 네온 — 어두운 벽돌 벽, 포인트색 네온관으로 쓴 제목과 사진 틀, 가끔 깜빡이는 불빛.
-import type { FrameState, ThemeDef } from '../types';
-import { alpha, mix, withLightness } from '../color';
-import { shapeOf, titleOf, artistOf, rr, photoBackdrop, hash01, vignette, grain, setSpacing } from './_paint';
+import type { AccentPalette, FrameState, ThemeDef, Tone } from '../types';
+import { alpha, ensureContrast, mix, withLightness } from '../color';
+import { shapeOf, titleOf, artistOf, rr, photoBackdrop, hash01, vignette, grain, setSpacing, isNative, surfaceOf, rgbOf } from './_paint';
+
+/** 톤별 바탕 — 다크: 밤의 벽돌 벽 / 라이트: 낮의 파스텔 페인트 벽돌 */
+const wallBg = (tone: Tone, p: AccentPalette) => (tone === 'dark' ? '#0b0a0e' : mix(p.accentSoft, '#f3efe8', 0.55));
 
 const brickCache = new Map<string, HTMLCanvasElement>();
 function brickTile(): HTMLCanvasElement | null {
@@ -23,6 +26,71 @@ function brickTile(): HTMLCanvasElement | null {
   }
   brickCache.set('b', c);
   return c;
+}
+
+/** 페인트 칠한 벽돌 — 흰 벽돌 + 회색 줄눈. 바탕색 위에 multiply로 얹어 어떤 색 벽이든 만든다 */
+function paintedBrickTile(): HTMLCanvasElement | null {
+  const hit = brickCache.get('p');
+  if (hit) return hit;
+  if (typeof document === 'undefined') return null;
+  const c = document.createElement('canvas');
+  c.width = 480; c.height = 240;
+  const g = c.getContext('2d')!;
+  g.fillStyle = '#c9c6c2'; g.fillRect(0, 0, 480, 240);
+  const bw = 120, bh = 40;
+  for (let row = 0; row < 6; row++) {
+    for (let col = -1; col < 5; col++) {
+      const x = col * bw + (row % 2 ? bw / 2 : 0), y = row * bh;
+      const v = 236 + Math.floor(hash01(row * 13 + col) * 19);
+      g.fillStyle = `rgb(${v},${v},${v})`;
+      g.fillRect(x + 3, y + 3, bw - 6, bh - 6);
+      // 벽돌 아래쪽 얕은 그늘 (페인트 아래 요철)
+      g.fillStyle = 'rgba(0,0,0,0.05)';
+      g.fillRect(x + 3, y + bh - 9, bw - 6, 6);
+    }
+  }
+  brickCache.set('p', c);
+  return c;
+}
+
+/** 낮의 네온관 — 불은 약하게, 색 유리관 자체가 보이게 (벽 그림자 → 은은한 빛 → 유리관 → 하이라이트) */
+function glassText(ctx: CanvasRenderingContext2D, s: string, x: number, y: number, font: string, tube: string, glow: string, on: number, u: number) {
+  ctx.save();
+  ctx.font = font;
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  // 벽에 떨어진 관 그림자
+  ctx.shadowColor = 'rgba(0,0,0,0.28)'; ctx.shadowBlur = 8 * u; ctx.shadowOffsetY = 7 * u;
+  ctx.fillStyle = tube;
+  ctx.fillText(s, x, y);
+  // 은은한 빛
+  ctx.shadowOffsetY = 0;
+  ctx.shadowColor = alpha(glow, 0.6 * on); ctx.shadowBlur = 22 * u * on;
+  ctx.fillText(s, x, y);
+  ctx.shadowBlur = 0; ctx.shadowColor = 'rgba(0,0,0,0)';
+  // 유리 하이라이트 — 관 위쪽에 밝은 결
+  ctx.save();
+  ctx.beginPath(); ctx.rect(x - 1e5, y - 1e5, 2e5, 1e5 - 2 * u); ctx.clip();
+  ctx.globalAlpha = 0.28;
+  ctx.fillStyle = '#ffffff';
+  ctx.fillText(s, x, y);
+  ctx.restore();
+  ctx.restore();
+}
+
+function glassRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number, tube: string, glow: string, on: number, u: number) {
+  ctx.save();
+  rr(ctx, x, y, w, h, r);
+  ctx.lineWidth = 9 * u;
+  ctx.strokeStyle = tube;
+  ctx.shadowColor = 'rgba(0,0,0,0.25)'; ctx.shadowBlur = 8 * u; ctx.shadowOffsetY = 7 * u;
+  ctx.stroke();
+  ctx.shadowOffsetY = 0;
+  ctx.shadowColor = alpha(glow, 0.5 * on); ctx.shadowBlur = 20 * u * on;
+  ctx.stroke();
+  ctx.shadowBlur = 0;
+  ctx.strokeStyle = mix(tube, '#ffffff', 0.45); ctx.lineWidth = 2.5 * u;
+  ctx.stroke();
+  ctx.restore();
 }
 
 /** 네온 글자 — 넓은 번짐 → 좁은 번짐 → 하얀 심지 3겹 */
@@ -69,31 +137,57 @@ export const neon: ThemeDef = {
   name: '네온',
   desc: '벽돌 벽 위 포인트색 네온사인',
   suggestedAccent: '#ff3fa4',
+  baseTone: 'dark',
+  toneBg: wallBg,
   background(ctx, f, kit) {
-    const W = f.width, H = f.height;
+    const W = f.width, H = f.height, p = f.palette;
+    const light = p.tone === 'light';
     if (f.settings.photoLayout === 'background') {
       photoBackdrop(ctx, f, kit, 0.25);
-    } else {
+    } else if (!p.bgCustom && !light) {
       const t = brickTile();
       const pat = t && ctx.createPattern(t, 'repeat');
       if (pat) {
         ctx.save(); const k = f.u * 1.2; ctx.scale(k, k); ctx.fillStyle = pat; ctx.fillRect(0, 0, W / k, H / k); ctx.restore();
       } else { ctx.fillStyle = '#0b0a0e'; ctx.fillRect(0, 0, W, H); }
+    } else {
+      // 칠한 벽돌 벽 — 바탕색(파스텔 또는 지정색) 위에 줄눈·요철을 multiply로
+      ctx.fillStyle = surfaceOf(f, wallBg); ctx.fillRect(0, 0, W, H);
+      const t = paintedBrickTile();
+      const pat = t && ctx.createPattern(t, 'repeat');
+      if (pat) {
+        ctx.save();
+        ctx.globalCompositeOperation = 'multiply';
+        ctx.globalAlpha = light ? 0.55 : 0.9;
+        const k = f.u * 1.2; ctx.scale(k, k); ctx.fillStyle = pat; ctx.fillRect(0, 0, W / k, H / k);
+        ctx.restore();
+      }
     }
-    // 네온이 벽을 비추는 빛
+    // 네온이 벽을 비추는 빛 (낮에는 은은하게)
     const g = ctx.createRadialGradient(W / 2, H * 0.4, 0, W / 2, H * 0.4, Math.max(W, H) * 0.65);
-    g.addColorStop(0, alpha(f.palette.accent, 0.22 * flickerOn(f, 1)));
+    g.addColorStop(0, alpha(p.accent, (light ? 0.1 : 0.22) * flickerOn(f, 1)));
     g.addColorStop(1, 'rgba(0,0,0,0)');
     ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
-    vignette(ctx, f, 0.75);
+    if (light) vignette(ctx, f, 0.3, f.settings.photoLayout === 'background' ? rgbOf(p.dim) : rgbOf(mix(surfaceOf(f, wallBg), '#3a2f28', 0.55)));
+    else vignette(ctx, f, 0.75);
     grain(ctx, f, 0.05, 0);
   },
   foreground(ctx, f, kit) {
     const u = f.u, W = f.width, H = f.height, s = f.settings;
     const shape = shapeOf(f);
-    const c1 = withLightness(f.palette.accent, 0.62, 1.2);
+    const p = f.palette;
+    const nat = isNative(f, 'dark');
+    const day = p.tone === 'light';   // 낮: 색 유리관 + 은은한 빛
+    const c1 = withLightness(p.accent, 0.62, 1.2);
     // 보조 네온색 — 포인트색의 맞은편(보색 쪽)으로 살짝
-    const c2 = withLightness(mix(f.palette.accent, '#30e0ff', 0.7), 0.7, 1.1);
+    const c2 = withLightness(mix(p.accent, '#30e0ff', 0.7), 0.7, 1.1);
+    // 낮의 유리관 색 — 벽 위에서 읽히도록 진하게 (제목 ≥ 3, 작은 글자 ≥ 4.5)
+    const wall = s.photoLayout === 'background' ? p.dim : surfaceOf(f, wallBg);
+    const t1 = ensureContrast(withLightness(p.accent, 0.42, 1.15), wall, 3.2);
+    const t2 = ensureContrast(withLightness(mix(p.accent, '#30e0ff', 0.7), 0.36, 1.1), wall, 4.6);
+    const neonT = (str: string, x: number, y: number, font: string, which: 1 | 2, on: number) =>
+      day ? glassText(ctx, str, x, y, font, which === 1 ? t1 : t2, which === 1 ? c1 : c2, on, u)
+        : neonText(ctx, str, x, y, font, which === 1 ? c1 : c2, on, u);
     const on1 = flickerOn(f, 1), on2 = flickerOn(f, 2);
     const pad = 80 * u;
     let photo: { x: number; y: number; w: number } | null = null;
@@ -126,13 +220,13 @@ export const neon: ThemeDef = {
     ctx.font = kit.font(fs, 700);
     const mw = ctx.measureText(titleOf(f)).width;
     if (mw > tw) fs *= Math.max(0.45, tw / mw);
-    neonText(ctx, kit.fitText(ctx, titleOf(f), tw), tx, ty, kit.font(fs, 700), c1, on1, u);
+    neonT(kit.fitText(ctx, titleOf(f), tw), tx, ty, kit.font(fs, 700), 1, on1);
     ctx.save(); setSpacing(ctx, 8 * u);
-    neonText(ctx, artistOf(f).toUpperCase(), tx, ty + fs * 0.5 + 46 * u, kit.font(30 * u, 500), c2, on2, u);
+    neonT(artistOf(f).toUpperCase(), tx, ty + fs * 0.5 + 46 * u, kit.font(30 * u, 500), 2, on2);
     ctx.restore();
     if (s.phrase) {
-      ctx.save(); ctx.globalAlpha = 0.6;
-      ctx.font = kit.font(24 * u, 400); ctx.fillStyle = '#e8e6f0'; ctx.textAlign = 'center';
+      ctx.save(); ctx.globalAlpha = nat ? 0.6 : 1;
+      ctx.font = kit.font(24 * u, 400); ctx.fillStyle = nat ? '#e8e6f0' : p.inkSoft; ctx.textAlign = 'center';
       ctx.fillText(kit.fitText(ctx, s.phrase, tw), tx, ty + fs * 0.5 + 96 * u);
       ctx.restore();
     }
@@ -143,28 +237,30 @@ export const neon: ThemeDef = {
         const m = photo.w * 0.2;
         kit.drawVisualizer(ctx, { x: photo.x + m, y: photo.y + m, w: photo.w - m * 2, h: photo.w - m * 2 }, { color: c1, color2: c2, innerRadius: 0.5, glow: 10 * u });
       }
-      neonRect(ctx, photo.x - 18 * u, photo.y - 18 * u, photo.w + 36 * u, photo.w + 36 * u, 40 * u, c1, on1, u);
+      if (day) glassRect(ctx, photo.x - 18 * u, photo.y - 18 * u, photo.w + 36 * u, photo.w + 36 * u, 40 * u, t1, c1, on1, u);
+      else neonRect(ctx, photo.x - 18 * u, photo.y - 18 * u, photo.w + 36 * u, photo.w + 36 * u, 40 * u, c1, on1, u);
     }
     // 비주얼라이저 + 가사
     let lh = lr.h;
     if (s.visualizer !== 'none' && !(photo && s.visualizer === 'radial')) {
       const vh = (photo ? 90 : 160) * u;
-      kit.drawVisualizer(ctx, { x: lr.x, y: lr.y + lr.h - vh, w: lr.w, h: vh }, { color: c1, color2: c2, glow: 12 * u, count: 48, mirror: true, innerRadius: 0.35 });
+      kit.drawVisualizer(ctx, { x: lr.x, y: lr.y + lr.h - vh, w: lr.w, h: vh }, { color: day ? t1 : c1, color2: day ? t2 : c2, glow: (day ? 5 : 12) * u, count: 48, mirror: true, innerRadius: 0.35 });
       lh -= vh + 30 * u;
     }
     kit.drawLyrics(ctx, { x: lr.x, y: lr.y, w: lr.w, h: lh }, {
-      align: shape === 'tall' ? 'center' : 'left', size: (shape === 'square' && coverMode ? 40 : 46) * u, color: '#ffffff', dimColor: alpha(c2, 0.85),
-      weight: 700, glow: c1, lineHeight: 1.45,
+      align: shape === 'tall' ? 'center' : 'left', size: (shape === 'square' && coverMode ? 40 : 46) * u,
+      color: nat ? '#ffffff' : p.ink, dimColor: day ? t2 : alpha(c2, 0.85),
+      weight: 700, glow: day ? alpha(c1, 0.45) : c1, lineHeight: 1.45,
     });
     // 진행 — 아래 가는 네온 선
     if (s.showProgress) {
       const px = lr.x, pw = lr.w, py = H - pad * 0.9;
       ctx.save();
-      ctx.fillStyle = 'rgba(255,255,255,0.12)'; ctx.fillRect(px, py, pw, 3 * u);
-      ctx.shadowColor = c1; ctx.shadowBlur = 16 * u;
-      ctx.fillStyle = mix(c1, '#ffffff', 0.4); ctx.fillRect(px, py - 1 * u, pw * kit.progress, 5 * u);
+      ctx.fillStyle = nat ? 'rgba(255,255,255,0.12)' : alpha(p.ink, 0.14); ctx.fillRect(px, py, pw, 3 * u);
+      ctx.shadowColor = c1; ctx.shadowBlur = (day ? 8 : 16) * u;
+      ctx.fillStyle = day ? t1 : mix(c1, '#ffffff', 0.4); ctx.fillRect(px, py - 1 * u, pw * kit.progress, 5 * u);
       ctx.restore();
-      ctx.save(); ctx.font = kit.font(20 * u, 400, kit.mono); ctx.fillStyle = 'rgba(255,255,255,0.55)';
+      ctx.save(); ctx.font = kit.font(20 * u, 400, kit.mono); ctx.fillStyle = nat ? 'rgba(255,255,255,0.55)' : p.inkSoft;
       ctx.fillText(kit.fmtTime(f.time), px, py - 16 * u);
       ctx.textAlign = 'right'; ctx.fillText(kit.fmtTime(f.duration), px + pw, py - 16 * u);
       ctx.restore();

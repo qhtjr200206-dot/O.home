@@ -1,7 +1,11 @@
 // 폴라로이드 — 종이 위에 테이프로 붙인 즉석 사진, 아래 여백에 손글씨 제목, 날짜 도장처럼 찍힌 재생 시간.
-import type { ThemeDef } from '../types';
+import type { AccentPalette, ThemeDef, Tone } from '../types';
 import { alpha, mix } from '../color';
-import { shapeOf, titleOf, artistOf, text, rr, photoBackdrop, paper, withShadow, hash01, grain } from './_paint';
+import { shapeOf, titleOf, artistOf, text, rr, photoBackdrop, paper, withShadow, hash01, grain, vignette, isNative, surfaceOf } from './_paint';
+
+/** 톤별 바탕 — 라이트: 종이 / 다크: 검은 앨범 속지(크라프트 흑지) */
+const pageBg = (tone: Tone, p: AccentPalette) =>
+  tone === 'dark' ? mix(p.accentDeep, '#1a1816', 0.72) : mix(p.accentSoft, '#f4efe6', 0.6);
 
 function tape(ctx: CanvasRenderingContext2D, cx: number, cy: number, w: number, h: number, rot: number, color: string) {
   ctx.save();
@@ -24,16 +28,27 @@ export const polaroid: ThemeDef = {
   name: '폴라로이드',
   desc: '종이 위 즉석 사진과 마스킹테이프, 손글씨 제목',
   suggestedAccent: '#e86a4a',
+  baseTone: 'light',
+  toneBg: pageBg,
   background(ctx, f, kit) {
     if (f.settings.photoLayout === 'background') { photoBackdrop(ctx, f, kit, -0.1); return; }
-    paper(ctx, f, { x: 0, y: 0, w: f.width, h: f.height }, mix(f.palette.accentSoft, '#f4efe6', 0.6), 0.35);
+    const dark = f.palette.tone === 'dark';
+    // 다크: 섬유가 보이는 검은 앨범 속지 + 가장자리 그늘
+    paper(ctx, f, { x: 0, y: 0, w: f.width, h: f.height }, surfaceOf(f, pageBg), dark ? 0.5 : 0.35);
+    if (dark) vignette(ctx, f, 0.45);
   },
   foreground(ctx, f, kit) {
     const u = f.u, W = f.width, H = f.height, s = f.settings;
     const shape = shapeOf(f);
     const pad = 80 * u;
-    const dark = s.photoLayout === 'background';
-    const ink = dark ? '#fdfaf3' : '#2a2724', sub = dark ? 'rgba(253,250,243,0.72)' : 'rgba(42,39,36,0.62)';
+    const p = f.palette;
+    const nat = isNative(f, 'light');
+    const bgPhoto = s.photoLayout === 'background';
+    // 원래 모습: 종이 위 먹색 / 사진 배경 위 흰색. 그 밖엔 팔레트
+    const ink = nat ? (bgPhoto ? '#fdfaf3' : '#2a2724') : p.ink;
+    const sub = nat ? (bgPhoto ? 'rgba(253,250,243,0.72)' : 'rgba(42,39,36,0.62)') : p.inkSoft;
+    const acc = nat ? p.accent : p.accentInk;
+    const darkPage = p.tone === 'dark' && !bgPhoto;
     // 폴라로이드 크기 (가로:세로 = 0.86:1, 사진 정사각)
     let pw: number, px: number, py: number, rot: number;
     let lr: { x: number; y: number; w: number; h: number };
@@ -52,7 +67,7 @@ export const polaroid: ThemeDef = {
     const imgS = pw - m * 2;
     ctx.save();
     ctx.translate(px + pw / 2, py + ph / 2); ctx.rotate(rot); ctx.translate(-(px + pw / 2), -(py + ph / 2));
-    withShadow(ctx, 40 * u, 18 * u, 'rgba(40,30,20,0.35)', () => {
+    withShadow(ctx, 40 * u, 18 * u, darkPage ? 'rgba(0,0,0,0.6)' : 'rgba(40,30,20,0.35)', () => {
       ctx.fillStyle = '#fbfaf6'; ctx.fillRect(px, py, pw, ph);
     });
     paper(ctx, f, { x: px, y: py, w: pw, h: ph }, '#fbfaf6', 0.18);
@@ -79,13 +94,14 @@ export const polaroid: ThemeDef = {
     text(ctx, kit, '— ' + artistOf(f), px + pw / 2, capY + pw * 0.07, { font: kit.font(pw * 0.048, 500), color: '#3b4a6b', align: 'center', maxW: pw - m * 2 });
     ctx.restore();
     // 테이프 두 조각
-    const tc = alpha(mix(f.palette.accent, '#efe3c8', 0.55), 0.78);
+    // 마스킹테이프 — 검은 속지 위에선 덜 비치게(불투명도↑) 해서 색이 탁해지지 않게
+    const tc = alpha(mix(f.palette.accent, '#efe3c8', 0.55), darkPage ? 0.9 : 0.78);
     tape(ctx, px + pw * 0.5, py - 6 * u, pw * 0.34, 54 * u, 0.04 + hash01(3) * 0.04, tc);
     // 문구 — 오른쪽/아래에 손으로 쓴 메모처럼
     let ly = lr.y;
     if (s.phrase) {
-      text(ctx, kit, s.phrase, lr.x, lr.y + 30 * u, { font: kit.font(36 * u, 600), color: f.palette.accent, maxW: lr.w });
-      ctx.strokeStyle = alpha(f.palette.accent, 0.6); ctx.lineWidth = 3 * u; ctx.lineCap = 'round';
+      text(ctx, kit, s.phrase, lr.x, lr.y + 30 * u, { font: kit.font(36 * u, 600), color: acc, maxW: lr.w });
+      ctx.strokeStyle = alpha(acc, 0.6); ctx.lineWidth = 3 * u; ctx.lineCap = 'round';
       ctx.beginPath();
       ctx.moveTo(lr.x, lr.y + 48 * u);
       for (let i = 0; i <= 20; i++) ctx.lineTo(lr.x + (Math.min(lr.w, 360 * u) * i) / 20, lr.y + 48 * u + Math.sin(i * 1.3) * 3 * u);
@@ -97,9 +113,9 @@ export const polaroid: ThemeDef = {
     if (s.visualizer !== 'none') {
       const radial = s.visualizer === 'radial';
       const vh = radial ? 200 * u : 90 * u;
-      kit.drawVisualizer(ctx, { x: radial ? lr.x + lr.w - vh : lr.x, y: lr.y + lr.h - vh, w: radial ? vh : lr.w, h: vh }, { color: dark ? '#fdfaf3' : '#2a2724', color2: f.palette.accent, alpha: 0.75, count: 44, thickness: 3 * u, innerRadius: 0.35 });
+      kit.drawVisualizer(ctx, { x: radial ? lr.x + lr.w - vh : lr.x, y: lr.y + lr.h - vh, w: radial ? vh : lr.w, h: vh }, { color: nat ? (bgPhoto ? '#fdfaf3' : '#2a2724') : p.ink, color2: acc, alpha: 0.75, count: 44, thickness: 3 * u, innerRadius: 0.35 });
       lh -= vh + 30 * u;
     }
-    kit.drawLyrics(ctx, { x: lr.x, y: ly, w: lr.w, h: lh }, { align: shape === 'tall' ? 'center' : 'left', size: (shape === 'square' ? 40 : 44) * u, color: ink, dimColor: sub, weight: 600, lineHeight: 1.5 });
+    kit.drawLyrics(ctx, { x: lr.x, y: ly, w: lr.w, h: lh }, { align: shape === 'tall' ? 'center' : 'left', size: (shape === 'square' ? 40 : 44) * u, color: ink, dimColor: nat ? sub : ink, weight: 600, lineHeight: 1.5 });
   },
 };

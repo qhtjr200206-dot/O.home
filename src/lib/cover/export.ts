@@ -11,7 +11,7 @@ import type { ExportInput, ExportProgress, ExportResult, GifExportOptions, Ratio
 import { RATIO_SIZE } from './types';
 import { makeFrame, renderFrame, VIZ_MAX_BIN, VIZ_WAVE_SAMPLES } from './render';
 import { loadCoverFont } from './fonts';
-import { derivePalette } from './color';
+import { paletteFor } from './tone';
 import { FFT_SIZE, SMOOTHING, rmsLevel, smoothLevel } from './audio';
 
 const clamp = (v: number, a: number, b: number) => (v < a ? a : v > b ? b : v);
@@ -66,7 +66,7 @@ interface Scene {
 }
 function scene(input: ExportInput): Scene {
   const [imageW, imageH] = imageSize(input.image);
-  return { input, palette: derivePalette(input.settings.accent), imageW, imageH, lyrics: input.lyrics };
+  return { input, palette: paletteFor(input.settings), imageW, imageH, lyrics: input.lyrics };
 }
 function drawAt(ctx: CanvasRenderingContext2D, sc: Scene, w: number, h: number, time: number, playing: boolean,
   spectrum: Uint8Array | null, waveform: Uint8Array | null, level: number) {
