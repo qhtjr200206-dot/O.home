@@ -18,8 +18,10 @@
     "dompurify": "^3.4.16",
     "firebase": "^12.18.0",
     "firebase-admin": "^13.0.0",
+    "gifenc": "^1.0.3",
     "jszip": "^3.10.1",
     "marked": "^18.0.10",
+    "mediabunny": "^1.66.0",
     "next": "16.3.8",
     "react": "19.2.8",
     "react-dom": "19.2.8"
