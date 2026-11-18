@@ -62,7 +62,7 @@ export const film: ThemeDef = {
     const fx = vertical ? band : 0, fy = vertical ? 0 : band;
     const fw = vertical ? W - band * 2 : W, fh = vertical ? H : H - band * 2;
     // 사진 — 필름 창을 꽉 채움. cover 배치면 창 안 가운데 프레임(테두리 여백) + 위아래 레터박스
-    const flick = 1 - 0.05 * hash01(Math.floor(f.time * 18));
+    const flick = s.photoLayout === 'background' && s.bgStyle !== 'blur' ? 1 : 1 - 0.05 * hash01(Math.floor(f.time * 18));
     ctx.save();
     ctx.globalAlpha = flick;
     if (s.photoLayout === 'background') {
@@ -86,9 +86,9 @@ export const film: ThemeDef = {
       ctx.fillStyle = light ? `rgba(40,32,24,${0.05 + hash01(bucket + i) * 0.08})` : `rgba(255,250,235,${0.08 + hash01(bucket + i) * 0.12})`;
       ctx.fillRect(sxp, fy, Math.max(1, 1.4 * u), fh);
     }
-    if (light) vignette(ctx, f, 0.28, p.bgCustom ? rgbOf(mix(surf, '#000000', 0.45)) : '86,74,58');
-    else vignette(ctx, f, 0.7);
-    if (!vertical) {
+    if ((s.photoLayout !== 'background' || s.bgStyle === 'blur') && light) vignette(ctx, f, 0.28, p.bgCustom ? rgbOf(mix(surf, '#000000', 0.45)) : '86,74,58');
+    else if (s.photoLayout !== 'background' || s.bgStyle === 'blur') vignette(ctx, f, 0.7);
+    if (!vertical && (s.photoLayout !== 'background' || s.bgStyle === 'blur')) {
       // 크레디트·자막이 사진 위에서도 읽히게 위아래를 살짝 어둡게 (라이트: 덮개색으로 밝게)
       const sc = nat ? '0,0,0' : rgbOf(light ? veil : p.bgCustom ? p.bg : '#000000');
       const k = light ? 1.25 : 1;

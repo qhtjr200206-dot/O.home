@@ -22,6 +22,7 @@ export type VisualizerId = 'none' | 'bars' | 'wave' | 'radial' | 'dots';
 /** 전체 미세 움직임 */
 export type MotionId = 'none' | 'sway' | 'breathe' | 'kenburns';
 /** 사진 배치 — cover: 한쪽(또는 테마가 정한 자리)에 커버 / background: 전체 화면 배경 */
+export type BackgroundStyle = 'clear' | 'gradient' | 'frost' | 'blur';
 export type PhotoLayout = 'cover' | 'background';
 /** 실제로 그려지는 톤 */
 export type Tone = 'dark' | 'light';
@@ -49,6 +50,10 @@ export interface CoverSettings {
   lyricContextLines: number;
   showProgress: boolean;
   /** 배경 사진 어둡게 0 ~ 1 (background 배치 또는 테마 배경에 사진을 깔 때) */
+  bgStyle: BackgroundStyle;
+  bgStrength: number;
+  /** 구 매거진 전체 배경의 선명한 렌더링을 보존한다. 사용자가 배경 처리를 변경하면 해제. */
+  legacyMagazineBackground?: boolean;
   bgDim: number;
   /** 배경 사진 흐림 0 ~ 1 (테마가 실제 px로 환산) */
   bgBlur: number;
@@ -77,6 +82,8 @@ export const DEFAULT_SETTINGS: CoverSettings = {
   lyricContext: true,
   lyricContextLines: 1,
   showProgress: true,
+  bgStyle: 'gradient',
+  bgStrength: 0.6,
   bgDim: 0.45,
   bgBlur: 0.5,
   tone: 'auto',
@@ -111,7 +118,11 @@ export function normalizeSettings(raw: unknown): CoverSettings {
     lyricContext: pick('lyricContext', bool),
     lyricContextLines: pick('lyricContextLines', v => num(1, 3)(v) && Number.isInteger(v)),
     showProgress: pick('showProgress', bool),
+    bgStyle: o.bgStyle === undefined && o.photoLayout === 'background' ? 'blur' : pick('bgStyle', inList(['clear', 'gradient', 'frost', 'blur'])),
+    bgStrength: pick('bgStrength', num(0, 1)),
     bgDim: pick('bgDim', num(0, 1)),
+    // 설정값은 보존하고 구 매거진의 선명한 배경만 렌더링에서 재현한다.
+    legacyMagazineBackground: o.legacyMagazineBackground === true || (o.bgStyle === undefined && o.photoLayout === 'background' && o.theme === 'magazine'),
     bgBlur: pick('bgBlur', num(0, 1)),
     tone: pick('tone', inList(['auto', 'dark', 'light'])),
     // 소문자로 통일 (#ABCDEF로 저장된 값도 받는다)
@@ -138,7 +149,7 @@ export interface AccentPalette {
 
 /**
  * 프레임 팔레트 — tone.ts의 paletteFor(settings)가 만든다 (포인트색 + 톤 + 배경색).
- * 테마는 하드코딩 색 대신 이 값을 쓴다. 바탕에 바로 놓이는 글자는 ink/inkSoft를 쓰면 대비가 보장된다.
+ * 테마는 하드코딩 색 대신 이 값을 쓴다. ink/inkSoft는 단색 바탕 기준이며 사진 위 대비는 사진에 따라 달라진다.
  */
 export interface Palette extends AccentPalette {
   /** 실제 톤 (auto·배경색 반영 후) */

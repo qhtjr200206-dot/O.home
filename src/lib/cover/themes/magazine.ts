@@ -46,7 +46,7 @@ export const magazine: ThemeDef = {
     const p = f.palette;
     const nat = isNative(f, 'light');
     // 종이(표지) 위 글자 / 전체 사진 위 글자 — 원래 모습은 먹색·흰색 상수, 그 밖엔 팔레트
-    const ink = nat ? '#141210' : p.ink;
+    const ink = full && land && s.bgStyle !== 'blur' ? p.ink : nat ? '#141210' : p.ink;
     const onPhoto = nat ? '#ffffff' : p.ink;
     const acc = nat ? p.accent : p.accentInk;
     // 전체 사진 위 그라데이션 색 (다크: 검정, 라이트·지정색: 덮개색)
@@ -72,7 +72,7 @@ export const magazine: ThemeDef = {
         ? { x: W * 0.42, y: pad, w: W * 0.58 - pad, h: H - pad * 2 }
         : { x: pad, y: issueY + 26 * u, w: W - pad * 2, h: H - pad - bottomBand - (issueY + 26 * u) };
     kit.drawPhoto(ctx, photo, { dim: full ? toneDim(f, s.bgDim * 0.5) : 0 });
-    if (full) {
+    if (full && s.bgStyle === 'blur') {
       const g = ctx.createLinearGradient(0, H * 0.4, 0, H);
       g.addColorStop(0, `rgba(${scrim},0)`); g.addColorStop(1, `rgba(${scrim},${lightFull ? 0.85 : 0.75})`);
       ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
@@ -80,7 +80,7 @@ export const magazine: ThemeDef = {
       g2.addColorStop(0, `rgba(${scrim},${lightFull ? 0.45 : 0.25})`); g2.addColorStop(1, `rgba(${scrim},0)`);
       ctx.fillStyle = g2; ctx.fillRect(0, 0, W, issueY + 60 * u);
     }
-    if (full && land) {
+    if (full && land && s.bgStyle === 'blur') {
       // 가로 표지: 왼쪽 글자 단은 종이 띠 위에 (사진 위 검은 글자는 안 읽힌다)
       ctx.fillStyle = nat ? 'rgba(242,238,230,0.94)' : alpha(p.bg, 0.94);
       ctx.fillRect(0, 0, W * 0.42 - pad * 0.4, H);

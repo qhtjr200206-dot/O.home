@@ -210,7 +210,7 @@ export const neon: ThemeDef = {
       lr = { x: lx, y: top, w: W - lx - pad, h: H - top - pad * 1.3 };
     } else {
       tw = W - pad * 2; tx = W / 2; ty = H * 0.12;
-      const pw = coverMode ? Math.min(W - pad * 3.4, H * 0.4) : 0;
+      const pw = coverMode ? Math.max(0, Math.min(W - pad * 3.4, H * 0.4, H - ty - 190 * u - 70 * u - pad * 2 - (s.visualizer !== 'none' && s.visualizer !== 'radial' ? 120 : 0) * u - 290 * u)) : 0;
       if (coverMode) photo = { x: (W - pw) / 2, y: ty + 190 * u, w: pw };
       const ly = coverMode ? ty + 190 * u + pw + 70 * u : ty + 260 * u;
       lr = { x: pad, y: ly, w: W - pad * 2, h: H - ly - pad * 2 };

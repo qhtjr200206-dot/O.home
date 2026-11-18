@@ -180,22 +180,24 @@ export function canvasFilterSupported(): boolean {
 
 interface CacheEntry { key: string; canvas: Canvasish }
 const photoCache = new WeakMap<object, CacheEntry[]>();
+// 정렬된 frost 결과는 원본 이미지 기준으로 캐시한다. 움직이는 crop은 최신 한 프레임만 보관.
+const frostCache = new WeakMap<object, CacheEntry>();
 const CACHE_PER_IMAGE = 8;
 
 /** 사진 캐시 비우기 (WeakMap이라 사진을 버리면 저절로 GC됨 — 보통 안 불러도 됨) */
 export function clearPhotoCache(img?: object) {
-  if (img) photoCache.delete(img);
+  if (img) { photoCache.delete(img); frostCache.delete(img); }
 }
 
 /** 흐림·흑백 버전을 rect 비율로 미리 만들어 둔다. blur가 크면 해상도를 낮춰 빠르게(어차피 흐림) */
-function processedPhoto(img: CanvasImageSource, iw: number, ih: number, w: number, h: number, blur: number, gray: boolean): Canvasish | null {
+function processedPhoto(img: CanvasImageSource, iw: number, ih: number, w: number, h: number, blur: number, gray: boolean, aligned = false): Canvasish | null {
   const key0 = img as unknown as object;
   const ds = blur >= 24 ? 0.25 : blur >= 8 ? 0.5 : 1;
   // 크기는 8px 단위로 묶어 미세한 크기 변화(애니메이션)에도 재사용
-  const cw = Math.max(8, Math.round((w * ds) / 8) * 8);
-  const ch = Math.max(8, Math.round((h * ds) / 8) * 8);
+  const cw = Math.max(8, aligned ? Math.round(w * ds) : Math.round((w * ds) / 8) * 8);
+  const ch = Math.max(8, aligned ? Math.round(h * ds) : Math.round((h * ds) / 8) * 8);
   const b = Math.round(blur * ds * 2) / 2;
-  const key = `${cw}x${ch}|${b}|${gray ? 1 : 0}`;
+  const key = `${cw}x${ch}|${b}|${gray ? 1 : 0}|${aligned ? 1 : 0}`;
   let list = photoCache.get(key0);
   if (!list) { list = []; photoCache.set(key0, list); }
   const hit = list.find(e => e.key === key);
@@ -204,7 +206,7 @@ function processedPhoto(img: CanvasImageSource, iw: number, ih: number, w: numbe
   const x = ctx2d(c, gray);
   if (!x) return null;
   // rect 비율로 cover 자르기. 흐림이 있으면 가장자리가 투명하게 빠지지 않도록 살짝 크게 그린다
-  const over = b > 0 ? 1 + (4 * b) / Math.min(cw, ch) : 1;
+  const over = b > 0 && !aligned ? 1 + (4 * b) / Math.min(cw, ch) : 1;
   const k = Math.max(cw / iw, ch / ih) * over;
   const dw = iw * k, dh = ih * k;
   const dx = (cw - dw) / 2, dy = (ch - dh) / 2;
@@ -515,7 +517,7 @@ export function lyricPosition(lines: LyricLine[], time: number): number {
   return idx - 1 + easeOutCubic(e);
 }
 
-function drawLyricsImpl(ctx: CanvasRenderingContext2D, f: FrameState, family: string, rect: Rect, st: LyricStyle) {
+function drawLyricsImpl(ctx: CanvasRenderingContext2D, f: FrameState, family: string, rect: Rect, st: LyricStyle, collect?: (panel: Rect) => void) {
   const s = f.settings;
   const lines = f.lyrics;
   if (!s.showLyrics || !lines.length || rect.w <= 0 || rect.h <= 0 || !(st.size > 0)) return;
@@ -555,6 +557,21 @@ function drawLyricsImpl(ctx: CanvasRenderingContext2D, f: FrameState, family: st
     ctx.translate(x, cy);
     ctx.scale(sc, sc);
     ctx.font = fontCss(s.font, size, emph > 0.5 ? weight : ctxWeight);
+    if (collect) {
+      for (let k = 0; k < ws.length; k++) {
+        if (!ws[k].trim()) continue;
+        const width = ctx.measureText(ws[k]).width * sc;
+        const px = 12 * f.u, py = 5 * f.u;
+        const left = st.align === 'left' ? x : st.align === 'right' ? x - width : x - width / 2;
+        const mid = cy + (-total / 2 + lh * (k + 0.5)) * sc;
+        const height = size * sc;
+        const x0 = Math.max(rect.x, left - px), x1 = Math.min(rect.x + rect.w, left + width + px);
+        const y0 = Math.max(rect.y, mid - height / 2 - py), y1 = Math.min(rect.y + rect.h, mid + height / 2 + py);
+        if (x1 > x0 && y1 > y0) collect({ x: x0, y: y0, w: x1 - x0, h: y1 - y0 });
+      }
+      ctx.restore();
+      return;
+    }
     if (emph > 0.5 && st.glow) { ctx.shadowColor = st.glow; ctx.shadowBlur = size * 0.45 * emph * sc; }
     else if (st.shadow) { ctx.shadowColor = st.shadow; ctx.shadowBlur = size * 0.18 * sc; ctx.shadowOffsetY = size * 0.06 * sc; }
     const paint = (color: string, a: number) => {
@@ -579,11 +596,12 @@ function drawLyricsImpl(ctx: CanvasRenderingContext2D, f: FrameState, family: st
     const hs: number[] = [];
     for (let i = 0; i < k; i++) hs.push(wrapped(i).length * lh * (i === 0 ? 1 : cs));
     const totalH = hs.reduce((a, b) => a + b, 0);
-    let y = rect.y + rect.h / 2 - totalH / 2;
+    const fit = Math.min(1, rect.h / Math.max(1, totalH));
+    let y = rect.y + rect.h / 2 - totalH * fit / 2;
     for (let i = 0; i < k; i++) {
       const a = i === 0 ? 1 : Math.max(0.12, 0.5 * Math.pow(0.72, i - 1));
-      drawLine(i, y + hs[i] / 2, i === 0 ? 1 : cs, i === 0 ? 1 : 0, a);
-      y += hs[i];
+      drawLine(i, y + hs[i] * fit / 2, (i === 0 ? 1 : cs) * fit, i === 0 ? 1 : 0, a);
+      y += hs[i] * fit;
     }
     ctx.restore();
     return;
@@ -611,6 +629,10 @@ function drawLyricsImpl(ctx: CanvasRenderingContext2D, f: FrameState, family: st
   for (let j = bi - 1; j >= 0; j--) ys[j] = ys[j + 1] - info[j + 1].h / 2 - info[j].h / 2;
   const shift = frac * (ys[bi + 1] - ys[bi]);
   const cy = rect.y + rect.h / 2;
+  // 앞뒤 줄과 줄바꿈을 포함한 실제 높이가 작은 가사 칸보다 크면 함께 축소한다.
+  const extent = info.reduce((max, it, j) => it.i >= 0 && it.i < lines.length && it.dist < n + 1
+    ? Math.max(max, Math.abs(ys[j] - shift) + it.h / 2) : max, 0);
+  const fit = Math.min(1, rect.h / Math.max(1, extent * 2));
   for (let j = 0; j < info.length; j++) {
     const it = info[j];
     if (it.i < 0 || it.i >= lines.length) continue;
@@ -618,7 +640,7 @@ function drawLyricsImpl(ctx: CanvasRenderingContext2D, f: FrameState, family: st
     // 알파: 현재 1 → 바로 옆 0.42 → 멀수록 0.6배씩
     let a = d <= 1 ? lerp(n ? 0.42 : 0, 1, it.emph) : 0.42 * Math.pow(0.6, d - 1);
     if (d > n) a *= clamp(n + 1 - d, 0, 1); // n줄 바깥은 사라지기
-    drawLine(it.i, cy + ys[j] - shift, it.sc, it.emph, a);
+    drawLine(it.i, cy + (ys[j] - shift) * fit, it.sc * fit, it.emph, a);
   }
   ctx.restore();
 }
@@ -626,14 +648,17 @@ function drawLyricsImpl(ctx: CanvasRenderingContext2D, f: FrameState, family: st
 // ───────────────────────── kit ─────────────────────────
 
 /** 테마에 빌려주는 도구 묶음 (검증·커스텀 레이아웃에서 직접 써도 된다) */
-export function buildKit(f: FrameState): RenderKit {
+export function buildKit(f: FrameState, textRect?: Rect, panels: Rect[] = []): RenderKit {
   const family = fontFamily(f.settings.font);
   const motion = motionAt(f.settings.motion, f.time, f.settings.motionStrength);
   const kind = f.settings.motion;
 
   const drawPhoto: RenderKit['drawPhoto'] = (ctx, rect, opts = {}) => {
     if (rect.w <= 0 || rect.h <= 0) return;
-    const blur = Math.max(0, opts.blur ?? 0);
+    const backdrop = f.settings.photoLayout === 'background' && !!textRect && (rect.w >= f.width * 0.75 && rect.h >= f.height * 0.75);
+    const style = f.settings.bgStyle ?? 'gradient';
+    const legacyMagazine = f.settings.theme === 'magazine' && f.settings.legacyMagazineBackground;
+    const blur = Math.max(0, backdrop ? (style === 'blur' ? (opts.blur ?? (legacyMagazine ? 0 : f.settings.bgBlur * 36 * f.u)) : 0) : opts.blur ?? 0);
     const gray = !!opts.grayscale;
     ctx.save();
     ctx.beginPath();
@@ -655,15 +680,70 @@ export function buildKit(f: FrameState): RenderKit {
     } else {
       drawPlaceholder(ctx, f, rect, gray, blur > 0);
     }
-    if (opts.dim && opts.dim > 0) {
+    if (backdrop && style === 'frost' && panels.length > 0 && f.image && f.imageW > 0 && f.imageH > 0 && f.settings.bgStrength > 0) {
+      // 원본과 같은 crop/zoom/pan을 먼저 적용해야 흐린 부분의 사진이 어긋나지 않는다.
+      const b = f.settings.bgStrength * 36 * f.u;
+      const cw = Math.max(1, Math.round(rect.w)), ch = Math.max(1, Math.round(rect.h));
+      const zoom = kind === 'kenburns' || kind === 'breathe' ? motion.scale : 1;
+      const pk = Math.min(rect.w, rect.h) / 1080 * 2;
+      const px = kind === 'kenburns' ? motion.dx * pk : 0, py = kind === 'kenburns' ? motion.dy * pk : 0;
+      const key = JSON.stringify([f.imageW, f.imageH, rect.w, rect.h, b, gray, zoom, px, py]);
+      let c = frostCache.get(f.image as object)?.key === key ? frostCache.get(f.image as object)!.canvas : null;
+      if (!c) {
+        const source = makeCanvas(cw, ch), sx = ctx2d(source);
+        if (sx) {
+          sx.scale(cw / rect.w, ch / rect.h);
+          drawCover(sx as CanvasRenderingContext2D, f.image, f.imageW, f.imageH, { x: 0, y: 0, w: rect.w, h: rect.h }, zoom, px, py);
+          c = processedPhoto(source as CanvasImageSource, cw, ch, rect.w, rect.h, b, gray, true);
+          if (c) frostCache.set(f.image as object, { key, canvas: c });
+        }
+      }
+      if (c) {
+          ctx.save(); ctx.beginPath();
+          // film·magazine 사진은 이미 foreground 좌표계, 나머지는 화면 좌표계다.
+          const photoInForeground = f.settings.theme === 'film' || f.settings.theme === 'magazine';
+          if (!photoInForeground && (kind === 'sway' || kind === 'breathe')) {
+            ctx.translate(f.width / 2 + motion.dx * f.u, f.height / 2 + motion.dy * f.u);
+            if (motion.rot) ctx.rotate(motion.rot);
+            const sc = kind === 'breathe' ? 1 + (motion.scale - 1) * SCENE_BREATHE : 1;
+            ctx.scale(sc, sc); ctx.translate(-f.width / 2, -f.height / 2);
+            for (const panel of panels) roundRectPath(ctx, panel.x, panel.y, panel.w, panel.h, 8 * f.u);
+            ctx.clip();
+            ctx.translate(f.width / 2, f.height / 2); ctx.scale(1 / sc, 1 / sc);
+            if (motion.rot) ctx.rotate(-motion.rot);
+            ctx.translate(-f.width / 2 - motion.dx * f.u, -f.height / 2 - motion.dy * f.u);
+          } else {
+            for (const panel of panels) roundRectPath(ctx, panel.x, panel.y, panel.w, panel.h, 8 * f.u);
+            ctx.clip();
+          }
+          ctx.drawImage(c as CanvasImageSource, rect.x, rect.y, rect.w, rect.h);
+          ctx.fillStyle = alpha(f.palette.dim, 0.18 * f.settings.bgStrength);
+          ctx.fillRect(rect.x, rect.y, rect.w, rect.h);
+          ctx.restore();
+      }
+    }
+    if (backdrop && style === 'gradient' && textRect && f.settings.bgStrength > 0) {
+      // 가사 영역이 가로로 치우치면 그쪽에서, 아니면 아래에서 그라데이션.
+      const cx = textRect.x + textRect.w / 2;
+      const side = rect.w > rect.h * 1.2 && Math.abs(cx - rect.x - rect.w / 2) > rect.w * 0.12;
+      const g = side
+        ? ctx.createLinearGradient(cx < rect.x + rect.w / 2 ? rect.x + rect.w : rect.x, 0, cx, 0)
+        : ctx.createLinearGradient(0, rect.y, 0, Math.min(rect.y + rect.h, textRect.y + textRect.h * 0.75));
+      g.addColorStop(0, alpha(f.palette.dim, 0));
+      g.addColorStop(0.35, alpha(f.palette.dim, 0));
+      g.addColorStop(1, alpha(f.palette.dim, f.settings.bgStrength * 0.8));
+      ctx.fillStyle = g; ctx.fillRect(rect.x, rect.y, rect.w, rect.h);
+    }
+    const dim = backdrop ? (style === 'blur' ? (opts.dim ?? f.settings.bgDim) : 0) : (opts.dim ?? 0);
+    if (dim > 0) {
       // 덮개 색은 톤을 따른다 (dark: 검정, light: 흰색, 배경색 지정 시 그 색)
-      ctx.fillStyle = alpha(f.settings.photoLayout === 'background' ? f.palette.dim : '#000000', clamp(opts.dim, 0, 1));
+      ctx.fillStyle = alpha(f.settings.photoLayout === 'background' ? f.palette.dim : '#000000', clamp(dim, 0, 1));
       ctx.fillRect(rect.x, rect.y, rect.w, rect.h);
     }
     ctx.restore();
   };
 
-  const drawLyrics: RenderKit['drawLyrics'] = (ctx, rect, st) => drawLyricsImpl(ctx, f, family, rect, st);
+  const drawLyrics: RenderKit['drawLyrics'] = (ctx, rect, st) => drawLyricsImpl(ctx, f, family, rect, f.settings.photoLayout === 'background' && f.settings.bgStyle !== 'blur' ? { ...st, shadow: st.shadow ?? (f.palette.tone === 'light' ? 'rgba(255,255,255,0.9)' : 'rgba(0,0,0,0.9)') } : st);
 
   const drawVisualizer: RenderKit['drawVisualizer'] = (ctx, rect, st) => {
     const k: VisualizerId = st.kind ?? f.settings.visualizer;
@@ -686,12 +766,49 @@ export function buildKit(f: FrameState): RenderKit {
   };
 }
 
+// 테마의 실제 가사 위치를 그대로 수집한다. 레이아웃 설정이 바뀔 때만 재계산.
+const layoutCache = new Map<string, Rect>();
+function themeTextRect(f: FrameState): Rect {
+  const key = JSON.stringify([f.width, f.height, f.settings]);
+  const cached = layoutCache.get(key);
+  if (cached) return cached;
+  const c = makeCanvas(1, 1), x = ctx2d(c) as CanvasRenderingContext2D | null;
+  let found: Rect | undefined;
+  if (x) {
+    const kit = buildKit(f);
+    kit.drawLyrics = (_ctx, r) => { if (r.w > 0 && r.h > 0) found = r; };
+    kit.drawPhoto = () => {};
+    kit.drawVisualizer = () => {};
+    getTheme(f.settings.theme).foreground(x, f, kit);
+  }
+  const layoutRect = found ?? { x: f.width * 0.1, y: f.height * 0.55, w: f.width * 0.8, h: f.height * 0.3 };
+  if (layoutCache.size >= 8) layoutCache.delete(layoutCache.keys().next().value!);
+  layoutCache.set(key, layoutRect);
+  return layoutRect;
+}
+
+function lyricPanels(f: FrameState): Rect[] {
+  const panels: Rect[] = [];
+  const c = makeCanvas(1, 1), ctx = ctx2d(c) as CanvasRenderingContext2D | null;
+  if (!ctx) return panels;
+  const kit = buildKit(f);
+  kit.drawLyrics = (x, r, st) => drawLyricsImpl(x, f, kit.family, r, st, panel => panels.push(panel));
+  kit.drawPhoto = () => {};
+  kit.drawVisualizer = () => {};
+  getTheme(f.settings.theme).foreground(ctx, f, kit);
+  return panels;
+}
+
 /** ctx 크기 = f.width × f.height 로 맞춰진 상태에서 호출 */
 export function renderFrame(ctx: CanvasRenderingContext2D, f: FrameState): void {
   const theme = getTheme(f.settings.theme);
-  const kit = buildKit(f);
+  const full = f.settings.photoLayout === 'background';
+  const panels = full && f.settings.bgStyle === 'frost' && f.settings.bgStrength > 0 && f.settings.showLyrics && f.lyrics.length && f.image ? lyricPanels(f) : [];
+  const kit = buildKit(f, full ? themeTextRect(f) : undefined, panels);
   ctx.save();
-  theme.background(ctx, f, kit);
+  if (full && f.settings.bgStyle !== 'blur' && f.settings.theme !== 'film' && f.settings.theme !== 'magazine') {
+    kit.drawPhoto(ctx, { x: 0, y: 0, w: f.width, h: f.height });
+  } else theme.background(ctx, f, kit);
   ctx.restore();
   ctx.save();
   const m = kit.motion;

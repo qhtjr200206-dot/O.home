@@ -6,7 +6,7 @@ import { useAuth } from '@/lib/auth';
 import { useToast } from '@/components/ui/Toast';
 import {
   DEFAULT_SETTINGS, RATIO_SIZE, type CoverSettings, type LyricLine, type Ratio, type ThemeId, type FontId,
-  type VisualizerId, type MotionId, type ExportInput, type ExportResult, type ToneSetting,
+  type BackgroundStyle, type VisualizerId, type MotionId, type ExportInput, type ExportResult, type ToneSetting,
 } from '@/lib/cover/types';
 import { makeFrame, renderFrame } from '@/lib/cover/render';
 import { CoverAudio } from '@/lib/cover/audio';
@@ -124,7 +124,7 @@ export function CoverStudio() {
   const [dragOver, setDragOver] = useState(false);
   const [inviteOpen, setInviteOpen] = useState(false);
 
-  const set = useCallback(<K extends keyof CoverSettings>(k: K, v: CoverSettings[K]) => setSettings(s => ({ ...s, [k]: v })), []);
+  const set = useCallback(<K extends keyof CoverSettings>(k: K, v: CoverSettings[K]) => setSettings(s => ({ ...s, [k]: v, ...((k === 'bgStyle' || k === 'bgBlur') ? { legacyMagazineBackground: false } : {}) })), []);
 
   // 마지막 작업 설정 복원 → 이후 바뀔 때마다 자동 저장
   useEffect(() => { const l = loadLast(); if (l) { setSettings(l); setAccentTouched(true); } setLoadedLast(true); }, []);
@@ -552,9 +552,15 @@ export function CoverStudio() {
               </section>
               <section className={css.sec}>
                 <span className={css.secTitle}>배경 사진</span>
-                <Slider label="어둡게" value={settings.bgDim} min={0} max={0.9} step={0.05} onChange={v => set('bgDim', v)} show={`${Math.round(settings.bgDim * 100)}%`} />
-                <Slider label="흐림" value={settings.bgBlur} min={0} max={1} step={0.05} onChange={v => set('bgBlur', v)} show={`${Math.round(settings.bgBlur * 100)}%`} />
-                <p className={css.hint}>「전체 배경」 배치와 일부 테마의 배경에 적용됩니다.</p>
+                {settings.photoLayout === 'background' && <>
+                  <Seg<BackgroundStyle> label="배경 처리" value={settings.bgStyle} onChange={v => set('bgStyle', v)} options={[{ v: 'clear', t: '선명' }, { v: 'gradient', t: '그라데이션' }, { v: 'frost', t: '가사 영역 블러' }, { v: 'blur', t: '전체 블러' }]} />
+                  {(settings.bgStyle === 'gradient' || settings.bgStyle === 'frost') && <Slider label={settings.bgStyle === 'gradient' ? '그라데이션 강도' : '부분 블러 강도'} value={settings.bgStrength} min={0} max={1} step={0.05} onChange={v => set('bgStrength', v)} show={`${Math.round(settings.bgStrength * 100)}%`} />}
+                </>}
+                {(settings.photoLayout !== 'background' || settings.bgStyle === 'blur') && <>
+                  <Slider label="덮개 강도" value={settings.bgDim} min={0} max={0.9} step={0.05} onChange={v => set('bgDim', v)} show={`${Math.round(settings.bgDim * 100)}%`} />
+                  <Slider label="흐림" value={settings.bgBlur} min={0} max={1} step={0.05} onChange={v => set('bgBlur', v)} show={`${Math.round(settings.bgBlur * 100)}%`} />
+                </>}
+                <p className={css.hint}>사진 위 글자 대비는 보장되지 않습니다. 사진과 배경 처리 강도를 조절해 주세요.</p>
               </section>
               <section className={css.sec}>
                 <div className={css.rowBetween}><span className={css.label}>진행 막대·시간 표시</span><Switch label="진행 막대 표시" checked={settings.showProgress} onChange={v => set('showProgress', v)} /></div>
