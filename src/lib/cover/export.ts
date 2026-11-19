@@ -72,7 +72,7 @@ function drawAt(ctx: CanvasRenderingContext2D, sc: Scene, w: number, h: number, 
   spectrum: Uint8Array | null, waveform: Uint8Array | null, level: number) {
   const f = makeFrame({
     settings: sc.input.settings, width: w, height: h, time, duration: sc.input.duration, playing,
-    image: sc.input.image, imageW: sc.imageW, imageH: sc.imageH, lyrics: sc.lyrics,
+    image: sc.input.image, imageW: sc.imageW, imageH: sc.imageH, images: sc.input.images, lyrics: sc.lyrics,
     spectrum, waveform, level, palette: sc.palette,
   });
   ctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -218,9 +218,9 @@ function sliceAudio(buf: AudioBuffer, s: number, e: number): AudioBuffer | null 
   return out;
 }
 
-function videoBitrate(w: number, h: number, fps: number): number {
+function videoBitrate(w: number, h: number, fps: number, quality: VideoExportOptions['quality'] = 'balanced'): number {
   const px = (w * h) / (1080 * 1920);
-  return Math.round((4e6 + 4e6 * Math.min(1.2, px)) * Math.sqrt(clamp(fps, 10, 60) / 30)); // 1080²≈6.3M, 1080×1920≈8M
+  return Math.round((4e6 + 4e6 * Math.min(1.2, px)) * Math.sqrt(clamp(fps, 10, 60) / 30) * (quality === 'small' ? 0.45 : quality === 'high' ? 1.6 : 1)); // 1080²≈6.3M, 1080×1920≈8M
 }
 
 // ───────────────────────── PNG ─────────────────────────
@@ -356,7 +356,7 @@ async function encodeWebCodecs(input: ExportInput, opts: VideoExportOptions, p: 
   const dur = n / fps;
 
   // 2) 출력 준비
-  const bitrate = videoBitrate(w, h, fps);
+  const bitrate = videoBitrate(w, h, fps, opts.quality);
   const canvas = makeCanvas(w, h);
   const ctx = canvas.getContext('2d', { alpha: false }) as CanvasRenderingContext2D;
   const output = new mb.Output({ format: new mb.Mp4OutputFormat({ fastStart: 'in-memory' }), target: new mb.BufferTarget() });
@@ -487,7 +487,7 @@ async function exportRecorder(input: ExportInput, opts: VideoExportOptions, p: V
     src.connect(an); an.connect(dest);
     dest.stream.getAudioTracks().forEach(t => stream.addTrack(t));
   }
-  const rec = new MediaRecorder(stream, { mimeType: type, videoBitsPerSecond: videoBitrate(w, h, fps), audioBitsPerSecond: 192_000 });
+  const rec = new MediaRecorder(stream, { mimeType: type, videoBitsPerSecond: videoBitrate(w, h, fps, opts.quality), audioBitsPerSecond: 192_000 });
   const chunks: Blob[] = [];
   rec.ondataavailable = e => { if (e.data && e.data.size) chunks.push(e.data); };
   const stopped = new Promise<void>(res => { rec.onstop = () => res(); });

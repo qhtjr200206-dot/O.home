@@ -133,12 +133,12 @@ export const film: ThemeDef = {
 
     // 오프닝 크레디트 — 왼쪽 위 / 타임코드 오른쪽 위
     const ix = fx + 56 * u, iy = fy + 70 * u;
-    text(ctx, kit, (s.phrase || 'ORIGINAL SOUNDTRACK').toUpperCase(), ix, iy, { font: kit.font(18 * u, 700, kit.mono), color: cCred, spacing: 4 * u, maxW: fw * 0.6 });
+    text(ctx, kit, (s.phrase || 'ORIGINAL SOUNDTRACK').toUpperCase(), ix, iy, { role: s.phrase ? 'phrase' : undefined, font: kit.font(18 * u, 700, kit.mono), color: cCred, spacing: 4 * u, maxW: fw * 0.6 });
     const ttlSize = vertical ? 64 : 58;
     const shotBottom = fy + 130 * u + Math.min(fh * 0.42, fw - 60 * u);
     const tY = vertical ? shotBottom + 100 * u : iy + 70 * u;
-    text(ctx, kit, titleOf(f), ix, tY, { font: kit.font(ttlSize * u, 800), color: cIn, maxW: fw - 112 * u });
-    text(ctx, kit, artistOf(f), ix, tY + 52 * u, { font: kit.font(28 * u, 500), color: cSub, maxW: fw - 112 * u, spacing: 1 * u });
+    text(ctx, kit, titleOf(f), ix, tY, { role: 'title', font: kit.font(ttlSize * u, 800), color: cIn, maxW: fw - 112 * u });
+    text(ctx, kit, artistOf(f), ix, tY + 52 * u, { role: 'artist', font: kit.font(28 * u, 500), color: cSub, maxW: fw - 112 * u, spacing: 1 * u });
     // 타임코드 HH:MM:SS:FF
     const fr = Math.floor((f.time % 1) * 24);
     const tc = `00:${kit.fmtTime(f.time).padStart(5, '0')}:${String(fr).padStart(2, '0')}`;

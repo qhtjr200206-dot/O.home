@@ -68,8 +68,8 @@ function drawCassette(ctx: CanvasRenderingContext2D, f: FrameState, kit: RenderK
   // 줄 노트 선
   ctx.strokeStyle = 'rgba(40,60,120,0.18)'; ctx.lineWidth = 2 * k;
   for (const yy of [190, 260]) { ctx.beginPath(); ctx.moveTo(lx + 36 * k, ly + yy * k); ctx.lineTo(lx + 36 * k + tw, ly + yy * k); ctx.stroke(); }
-  text(ctx, kit, titleOf(f), lx + 40 * k, ly + 178 * k, { font: kit.font(66 * k, 700), color: '#1d2a4a', maxW: tw - 10 * k });
-  text(ctx, kit, artistOf(f), lx + 40 * k, ly + 248 * k, { font: kit.font(40 * k, 500), color: '#33415e', maxW: tw - 10 * k });
+  text(ctx, kit, titleOf(f), lx + 40 * k, ly + 178 * k, { role: 'title', font: kit.font(66 * k, 700), color: '#1d2a4a', maxW: tw - 10 * k });
+  text(ctx, kit, artistOf(f), lx + 40 * k, ly + 248 * k, { role: 'artist', font: kit.font(40 * k, 500), color: '#33415e', maxW: tw - 10 * k });
   // 창 (릴이 보이는 곳)
   const wx = lx + 150 * k, wy = ly + 290 * k, ww = lw - 300 * k, wh = 150 * k;
   rr(ctx, wx, wy, ww, wh, wh / 2); ctx.fillStyle = '#0d0d0f'; ctx.fill();
@@ -111,8 +111,8 @@ function jcard(ctx: CanvasRenderingContext2D, f: FrameState, kit: RenderKit, x: 
   paper(ctx, f, { x, y: y + w, w, h: spine }, '#f3ecdc', 0.3);
   ctx.fillStyle = f.palette.accent; ctx.fillRect(x, y + w, w * 0.07, spine);
   ctx.fillStyle = 'rgba(0,0,0,0.18)'; ctx.fillRect(x, y + w, w, 2 * u);
-  text(ctx, kit, titleOf(f), x + w * 0.1, y + w + spine * 0.46, { font: kit.font(spine * 0.3, 700), color: '#1d2a4a', maxW: w * 0.84 });
-  text(ctx, kit, artistOf(f), x + w * 0.1, y + w + spine * 0.8, { font: kit.font(spine * 0.2, 500), color: '#33415e', maxW: w * 0.84 });
+  text(ctx, kit, titleOf(f), x + w * 0.1, y + w + spine * 0.46, { role: 'title', font: kit.font(spine * 0.3, 700), color: '#1d2a4a', maxW: w * 0.84 });
+  text(ctx, kit, artistOf(f), x + w * 0.1, y + w + spine * 0.8, { role: 'artist', font: kit.font(spine * 0.2, 500), color: '#33415e', maxW: w * 0.84 });
   return w + spine;
 }
 
@@ -197,7 +197,7 @@ export const cassette: ThemeDef = {
     // 문구 — 카세트 위 메모
     if (s.phrase) {
       const py = shape === 'tall' ? (card ? card.y - 26 * u : cy - 50 * u) : shape === 'land' ? ly - 30 * u : H - pad * 0.6;
-      text(ctx, kit, s.phrase, shape === 'land' ? lx : W / 2, py, { font: kit.font(30 * u, 500), color: sub, align: shape === 'land' ? 'left' : 'center', maxW: shape === 'land' ? lw : W - pad * 2 });
+      text(ctx, kit, s.phrase, shape === 'land' ? lx : W / 2, py, { role: 'phrase', font: kit.font(30 * u, 500), color: sub, align: shape === 'land' ? 'left' : 'center', maxW: shape === 'land' ? lw : W - pad * 2 });
     }
     kit.drawLyrics(ctx, { x: lx, y: ly, w: lw, h: lh }, { align: shape === 'land' ? 'left' : 'center', size: (shape === 'tall' ? 58 : 46) * u, color: ink, dimColor: nat ? sub : ink, weight: 700, lineHeight: 1.45 });
     // 진행 — 테이프 카운터 숫자

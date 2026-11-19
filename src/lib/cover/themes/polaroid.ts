@@ -90,8 +90,8 @@ export const polaroid: ThemeDef = {
     }
     // 아래 여백 — 손글씨 제목 (펜 잉크)
     const capY = py + m + imgS + (ph - m - imgS) * 0.52;
-    text(ctx, kit, titleOf(f), px + pw / 2, capY, { font: kit.font(pw * 0.085, 700), color: '#25324f', align: 'center', maxW: pw - m * 2 });
-    text(ctx, kit, '— ' + artistOf(f), px + pw / 2, capY + pw * 0.07, { font: kit.font(pw * 0.048, 500), color: '#3b4a6b', align: 'center', maxW: pw - m * 2 });
+    text(ctx, kit, titleOf(f), px + pw / 2, capY, { role: 'title', font: kit.font(pw * 0.085, 700), color: '#25324f', align: 'center', maxW: pw - m * 2 });
+    text(ctx, kit, '— ' + artistOf(f), px + pw / 2, capY + pw * 0.07, { role: 'artist', font: kit.font(pw * 0.048, 500), color: '#3b4a6b', align: 'center', maxW: pw - m * 2 });
     ctx.restore();
     // 테이프 두 조각
     // 마스킹테이프 — 검은 속지 위에선 덜 비치게(불투명도↑) 해서 색이 탁해지지 않게
@@ -100,7 +100,7 @@ export const polaroid: ThemeDef = {
     // 문구 — 오른쪽/아래에 손으로 쓴 메모처럼
     let ly = lr.y;
     if (s.phrase) {
-      text(ctx, kit, s.phrase, lr.x, lr.y + 30 * u, { font: kit.font(36 * u, 600), color: acc, maxW: lr.w });
+      text(ctx, kit, s.phrase, lr.x, lr.y + 30 * u, { role: 'phrase', font: kit.font(36 * u, 600), color: acc, maxW: lr.w });
       ctx.strokeStyle = alpha(acc, 0.6); ctx.lineWidth = 3 * u; ctx.lineCap = 'round';
       ctx.beginPath();
       ctx.moveTo(lr.x, lr.y + 48 * u);

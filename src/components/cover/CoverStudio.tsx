@@ -5,7 +5,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useAuth } from '@/lib/auth';
 import { useToast } from '@/components/ui/Toast';
 import {
-  DEFAULT_SETTINGS, RATIO_SIZE, type CoverSettings, type LyricLine, type Ratio, type ThemeId, type FontId,
+  DEFAULT_SETTINGS, RATIO_SIZE, MAX_PHOTOS, type PhotoCrop, type PhotoTransition, type CoverSettings, type LyricLine, type Ratio, type ThemeId, type FontId,
   type BackgroundStyle, type VisualizerId, type MotionId, type ExportInput, type ExportResult, type ToneSetting,
 } from '@/lib/cover/types';
 import { makeFrame, renderFrame } from '@/lib/cover/render';
@@ -30,7 +30,7 @@ const TABS: { id: Tab; label: string }[] = [
   { id: 'style', label: '스타일' }, { id: 'lyrics', label: '가사' }, { id: 'export', label: '내보내기' }, { id: 'preset', label: '프리셋' },
 ];
 
-interface Photo { bmp: ImageBitmap; w: number; h: number; name: string; url: string }
+interface Photo { bmp: ImageBitmap; w: number; h: number; name: string; url: string; crop: PhotoCrop }
 
 const fmt = (t: number) => `${Math.floor(Math.max(0, t) / 60)}:${String(Math.floor(Math.max(0, t) % 60)).padStart(2, '0')}`;
 const safeName = (s: string) => s.replace(/[\\/:*?"<>|\u0000-\u001f]+/g, '').replace(/\s+/g, ' ').trim().slice(0, 60) || 'cover';
@@ -107,7 +107,16 @@ export function CoverStudio() {
   const [tab, setTab] = useState<Tab>('file');
   const [settings, setSettings] = useState<CoverSettings>(DEFAULT_SETTINGS);
   const [loadedLast, setLoadedLast] = useState(false);
-  const [photo, setPhoto] = useState<Photo | null>(null);
+  const [photos, setPhotos] = useState<Photo[]>([]);
+  const photosRef = useRef<Photo[]>([]);
+  const [selected, setSelected] = useState(0);
+  const photo = photos[selected] ?? photos[0] ?? null;
+  const updatePhotos = (next: Photo[]) => { photosRef.current = next; setPhotos(next); };
+  const cropPhoto = (crop: PhotoCrop) => {
+    if (isPlaying()) { pause(); setPlaying(false); }
+    updatePhotos(photosRef.current.map((p, i) => i === selected ? { ...p, crop } : p));
+  };
+  useEffect(() => () => { photosRef.current.forEach(p => { p.bmp.close(); URL.revokeObjectURL(p.url); }); }, []);
   const [palette, setPaletteChips] = useState<string[]>([]);
   const [accentTouched, setAccentTouched] = useState(false);
   const [audio] = useState(() => new CoverAudio());
@@ -188,9 +197,9 @@ export function CoverStudio() {
   }, [settings.ratio]);
 
   // 렌더 루프가 늘 최신 값을 보게
-  const live = useRef({ settings, photo, lyrics, duration, dirty: true });
-  live.current = { ...live.current, settings, photo, lyrics, duration };
-  useEffect(() => { live.current.dirty = true; }, [settings, photo, lyrics, duration, box, fontVer]);
+  const live = useRef({ settings, photo, photos, tab, lyrics, duration, dirty: true });
+  live.current = { ...live.current, settings, photo, photos, tab, lyrics, duration };
+  useEffect(() => { live.current.dirty = true; }, [settings, photo, photos, tab, lyrics, duration, box, fontVer]);
 
   useEffect(() => {
     const c = canvasRef.current; if (!c || !box.w) return;
@@ -211,11 +220,13 @@ export function CoverStudio() {
     const run = isPlaying();
     const time = getTime();
     const smp = audio.buffer ? audio.sample() : { spectrum: null, waveform: null, level: 0 };
+    // 사진 편집 중에는 타임라인에서 도달할 수 없는 사진도 온전히 표시한다.
+    const previewPhotos = !run && L.tab === 'file' && L.photo ? [L.photo] : L.photos;
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.clearRect(0, 0, c.width, c.height);
     renderFrame(ctx, makeFrame({
       settings: L.settings, width: c.width, height: c.height, time, duration: L.duration, playing: run,
-      image: L.photo?.bmp ?? null, imageW: L.photo?.w ?? 0, imageH: L.photo?.h ?? 0, lyrics: L.lyrics,
+      image: previewPhotos[0]?.bmp ?? null, imageW: previewPhotos[0]?.w ?? 0, imageH: previewPhotos[0]?.h ?? 0, images: previewPhotos.map(p => ({ img: p.bmp, w: p.w, h: p.h, crop: p.crop })), lyrics: L.lyrics,
       spectrum: smp.spectrum, waveform: smp.waveform, level: smp.level, palette: paletteFor(L.settings),
     }));
     return time;
@@ -241,7 +252,7 @@ export function CoverStudio() {
   useEffect(() => {
     const t = setTimeout(() => { if (!isPlaying()) draw(); }, 30);
     return () => clearTimeout(t);
-  }, [draw, settings, photo, lyrics, duration, box, fontVer]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [draw, settings, photo, photos, tab, lyrics, duration, box, fontVer]); // eslint-disable-line react-hooks/exhaustive-deps
 
   /* ---------- 폰트: 실제 그릴 글자까지 받아진 뒤 다시 그림 ---------- */
   const allText = useMemo(() => [settings.title, settings.artist, settings.phrase, ...lyrics.map(l => l.text)].join(''), [settings.title, settings.artist, settings.phrase, lyrics]);
@@ -269,6 +280,7 @@ export function CoverStudio() {
 
   /* ---------- 파일 ---------- */
   const loadPhoto = async (file: File) => {
+    if (photosRef.current.length >= MAX_PHOTOS) { toast("사진은 최대 10장입니다"); return; }
     if (!file.type.startsWith('image/')) { toast('이미지 파일이 아닙니다'); return; }
     if (file.size > 60 * 1024 * 1024) { toast('사진이 너무 큽니다 (60MB 이하)'); return; }
     try {
@@ -279,11 +291,10 @@ export function CoverStudio() {
         const small = await createImageBitmap(bmp, { resizeWidth: Math.round(bmp.width * k), resizeHeight: Math.round(bmp.height * k), resizeQuality: 'high' });
         bmp.close(); bmp = small;
       }
-      if (photo) { URL.revokeObjectURL(photo.url); photo.bmp.close(); }
-      setPhoto({ bmp, w: bmp.width, h: bmp.height, name: file.name, url: URL.createObjectURL(file) });
-      const chips = extractColors(bmp, 5);
-      setPaletteChips(chips);
-      if (chips[0] && !accentTouched) set('accent', chips[0]);
+      if (photosRef.current.length >= MAX_PHOTOS) { bmp.close(); toast("사진은 최대 10장입니다"); return; }
+      const first = photosRef.current.length === 0;
+      updatePhotos([...photosRef.current, { bmp, w: bmp.width, h: bmp.height, name: file.name, url: URL.createObjectURL(file), crop: { x: 0, y: 0, zoom: 1 } }]);
+      if (first) { const chips = extractColors(bmp, 5); setPaletteChips(chips); if (chips[0] && !accentTouched) set('accent', chips[0]); }
     } catch {
       toast('사진을 열 수 없습니다 (지원하지 않는 형식)');
     }
@@ -324,7 +335,7 @@ export function CoverStudio() {
   };
   const onDrop = (e: React.DragEvent) => {
     e.preventDefault(); setDragOver(false);
-    Array.from(e.dataTransfer.files).slice(0, 3).forEach(f => void routeFile(f));
+    void (async () => { for (const f of Array.from(e.dataTransfer.files)) await routeFile(f); })();
   };
 
   /* ---------- 내보내기 ---------- */
@@ -333,12 +344,12 @@ export function CoverStudio() {
   const [job, setJob] = useState<{ kind: string; phase: string; ratio: number } | null>(null);
   const [jobErr, setJobErr] = useState('');
   const abortRef = useRef<AbortController | null>(null);
-  const [mp4Opt, setMp4Opt] = useState({ start: 0, end: 0, scale: 1 });
+  const [mp4Opt, setMp4Opt] = useState<{ start: number; end: number; scale: number; quality: 'small' | 'balanced' | 'high' }>({ start: 0, end: 0, scale: 1, quality: 'balanced' });
   const [gifOpt, setGifOpt] = useState({ start: 0, end: 8, maxSide: 540, fps: 12 });
   useEffect(() => { setMp4Opt(o => ({ ...o, start: 0, end: Math.round(duration * 10) / 10 })); setGifOpt(o => ({ ...o, start: 0, end: Math.min(8, Math.round(duration * 10) / 10) })); }, [duration]);
 
   const fileBase = `${safeName(settings.title || 'cover')}_${getTheme(settings.theme).name.replace(/\s+/g, '')}`;
-  const exportInput = (): ExportInput => ({ settings, image: photo?.bmp ?? null, lyrics, audio: audio.buffer, duration });
+  const exportInput = (): ExportInput => ({ settings, image: photos[0]?.bmp ?? null, images: photos.map(p => ({ img: p.bmp, w: p.w, h: p.h, crop: p.crop })), lyrics, audio: audio.buffer, duration });
   const save = (r: ExportResult) => {
     const url = URL.createObjectURL(r.blob);
     const a = document.createElement('a');
@@ -360,7 +371,7 @@ export function CoverStudio() {
       if (kind === 'PNG') r = await exportPNG(exportInput(), getTime());
       else if (kind === 'MP4') {
         const end = Math.min(duration, Math.max(mp4Opt.start + 0.5, mp4Opt.end || duration));
-        r = await exportMP4(exportInput(), { start: Math.max(0, mp4Opt.start), end, fps: 30, scale: mp4Opt.scale, onProgress, signal: ac.signal });
+        r = await exportMP4(exportInput(), { start: Math.max(0, mp4Opt.start), end, fps: 30, scale: mp4Opt.scale, quality: mp4Opt.quality, onProgress, signal: ac.signal });
       } else {
         const end = Math.max(gifOpt.start + 0.5, Math.min(gifOpt.end, gifOpt.start + 30));
         r = await exportGIF(exportInput(), { start: Math.max(0, gifOpt.start), end, fps: gifOpt.fps, maxSide: gifOpt.maxSide, onProgress, signal: ac.signal });
@@ -413,7 +424,9 @@ export function CoverStudio() {
       <div className={css.body}>
         <div className={css.stageCol}>
           <div className={css.stage} ref={stageRef}>
-            <canvas ref={canvasRef} className={css.canvas} style={{ width: box.w, height: box.h }} aria-label="커버 미리보기" />
+            <canvas ref={canvasRef} className={css.canvas} style={{ width: box.w, height: box.h, touchAction: 'none' }} aria-label="커버 미리보기, 선택한 사진 드래그로 위치 조절"
+              onPointerDown={e => { if (!photo || tab !== 'file' || isPlaying()) return; e.currentTarget.setPointerCapture(e.pointerId); }}
+              onPointerMove={e => { if (!photo || tab !== 'file' || isPlaying() || !e.currentTarget.hasPointerCapture(e.pointerId)) return; cropPhoto({ ...photo.crop, x: Math.max(-1, Math.min(1, photo.crop.x + e.movementX / Math.max(1, box.w) * 2)), y: Math.max(-1, Math.min(1, photo.crop.y + e.movementY / Math.max(1, box.h) * 2)) }); }} />
             {dragOver && <div className={css.dropHint}>사진 · 오디오 · 가사 파일을 놓으세요</div>}
           </div>
           <div className={css.transport}>
@@ -439,8 +452,24 @@ export function CoverStudio() {
             <div className={css.pane}>
               <section className={css.sec}>
                 <div className={css.secHead}><span className={css.secTitle}>사진</span><span className={css.secAside}>JPG · PNG · WEBP</span></div>
-                <FileDrop accept="image/*" icon={photo ? <img src={photo.url} alt="" /> : I.image} name={photo?.name} meta={photo ? `${photo.w}×${photo.h}` : '커버 또는 배경으로 쓸 사진'}
-                  onFile={f => void loadPhoto(f)} onClear={photo ? () => { URL.revokeObjectURL(photo.url); photo.bmp.close(); setPhoto(null); setPaletteChips([]); } : undefined} />
+                <label className={css.btn}>사진 추가 (최대 10장)
+                  <input type="file" accept="image/*" multiple disabled={!!job} onChange={e => { const files = Array.from(e.target.files ?? []); e.target.value = ''; void (async () => { for (const f of files) await loadPhoto(f); })(); }} />
+                </label>
+                {photos.map((p, i) => <div key={p.url} className={css.rowBetween}>
+                  <button className={css.btn} aria-pressed={selected === i} onClick={() => { if (isPlaying()) { pause(); setPlaying(false); } setSelected(i); live.current.dirty = true; }}>{i + 1}. {p.name}</button>
+                  <button className={css.btn} disabled={i === 0 || !!job} aria-label={`${p.name} 앞으로`} onClick={() => { const a = [...photos]; [a[i-1], a[i]] = [a[i], a[i-1]]; updatePhotos(a); setSelected(i-1); }}>↑</button>
+                  <button className={css.btn} disabled={i === photos.length-1 || !!job} aria-label={`${p.name} 뒤로`} onClick={() => { const a = [...photos]; [a[i+1], a[i]] = [a[i], a[i+1]]; updatePhotos(a); setSelected(i+1); }}>↓</button>
+                  <button className={css.btn} disabled={!!job} aria-label={`${p.name} 삭제`} onClick={() => { updatePhotos(photos.filter((_, n) => n !== i)); setSelected(Math.max(0, Math.min(selected, photos.length-2))); URL.revokeObjectURL(p.url); p.bmp.close(); }}>삭제</button>
+                </div>)}
+                {photo && <>
+                  <p className={css.hint}>일시정지한 파일 탭에서는 선택한 사진을 보여줍니다. 드래그하거나 슬라이더로 위치를 조절하세요. 재생 및 내보내기는 시간에 따른 사진 전환을 사용합니다.</p>
+                  <Slider label="사진 확대" value={photo.crop.zoom} min={1} max={3} step={0.05} onChange={v => cropPhoto({ ...photo.crop, zoom: v })} />
+                  <Slider label="사진 가로 위치" value={photo.crop.x} min={-1} max={1} step={0.05} onChange={v => cropPhoto({ ...photo.crop, x: v })} />
+                  <Slider label="사진 세로 위치" value={photo.crop.y} min={-1} max={1} step={0.05} onChange={v => cropPhoto({ ...photo.crop, y: v })} />
+                  <button className={css.btn} onClick={() => cropPhoto({ x: 0, y: 0, zoom: 1 })}>사진 위치 초기화</button>
+                </>}
+                <Seg<PhotoTransition> label="사진 전환" value={settings.photoTransition} onChange={v => set('photoTransition', v)} options={[{v:'fade',t:'페이드'}, {v:'slide',t:'슬라이드'}, {v:'cut',t:'바로 전환'}]} />
+                <Slider label="사진당 시간 (0 = 곡 길이에 맞춤)" value={settings.photoSeconds} min={0} max={30} step={0.5} onChange={v => set('photoSeconds', v)} show={settings.photoSeconds ? `${settings.photoSeconds}초` : '자동'} />
                 <Seg label="사진 배치" value={settings.photoLayout} onChange={v => set('photoLayout', v)}
                   options={[{ v: 'cover', t: '커버형 (한쪽에 사진)' }, { v: 'background', t: '전체 배경' }]} />
               </section>
@@ -465,6 +494,10 @@ export function CoverStudio() {
               <TextField label="제목" max={80} value={settings.title} onChange={v => set('title', v)} placeholder="노래 제목" />
               <TextField label="가수" max={80} value={settings.artist} onChange={v => set('artist', v)} placeholder="아티스트" />
               <TextField label="문구" max={120} value={settings.phrase} onChange={v => set('phrase', v)} placeholder="한 줄 소개 · 플레이리스트 이름 · 인용" />
+              {([['titleColor', '제목'], ['artistColor', '가수'], ['phraseColor', '문구']] as const).map(([key, label]) => <div className={css.colorRow} key={key}>
+                <span>{label} 색</span><input type="color" aria-label={`${label} 색 고르기`} value={settings[key] || '#ffffff'} onChange={e => set(key, e.target.value)} />
+                <button className={css.btn} onClick={() => set(key, '')} aria-pressed={!settings[key]}>자동</button><span>{settings[key] || '자동 대비'}</span>
+              </div>)}
               <p className={css.hint}>문구는 테마마다 다른 자리(플레이리스트 이름, 인용문, 메모 등)에 들어갑니다.</p>
             </div>
           )}
@@ -638,6 +671,7 @@ export function CoverStudio() {
                 </div>
                 <Seg<string> label="해상도" value={String(mp4Opt.scale)} onChange={v => setMp4Opt(o => ({ ...o, scale: Number(v) }))}
                   options={[{ v: '1', t: `1080 (${RATIO_SIZE[settings.ratio].join('×')})` }, { v: '0.6667', t: '720' }]} />
+                <Seg label="영상 화질" value={mp4Opt.quality} onChange={v => setMp4Opt(o => ({ ...o, quality: v }))} options={[{v:"small",t:"용량 우선"}, {v:"balanced",t:"균형"}, {v:"high",t:"고화질"}]} />
                 {support && <p className={css.hint}>{support.ok ? (support.method === 'webcodecs' ? '이 브라우저는 빠른 MP4 인코딩(WebCodecs)을 지원합니다 — 곡 길이보다 빨리 끝납니다.' : support.note || '실시간 녹화 방식 — 구간 길이만큼 걸립니다.') : (support.note || '이 브라우저에서는 영상 내보내기를 할 수 없습니다.')}</p>}
                 <button className={`${css.btn} ${css.btnPrimary}`} disabled={!!job || (support !== null && !support.ok)} onClick={() => void run('MP4')}>{I.down}MP4 저장 ({fmt(Math.max(0, (mp4Opt.end || duration) - mp4Opt.start))})</button>
               </div>

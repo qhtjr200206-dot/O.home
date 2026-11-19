@@ -28,6 +28,13 @@ export type PhotoLayout = 'cover' | 'background';
 export type Tone = 'dark' | 'light';
 /** 사용자 설정 톤 — auto = 테마 원래 톤 (사진 '전체 배경' 배치일 때는 dark) */
 export type ToneSetting = 'auto' | Tone;
+/** 사진 여러 장일 때 전환 방식 */
+export type PhotoTransition = 'fade' | 'slide' | 'cut';
+/** 사진 최대 장수 */
+export const MAX_PHOTOS = 10;
+/** 사진 한 장 (미리보기·내보내기 공용) */
+export interface PhotoCrop { x: number; y: number; zoom: number }
+export interface SlideImage { img: CanvasImageSource; w: number; h: number; crop?: PhotoCrop }
 
 export interface CoverSettings {
   v: 1;
@@ -65,6 +72,14 @@ export interface CoverSettings {
   artist: string;
   /** 문구 1개 (짧은 한 줄 소개·인용) */
   phrase: string;
+  /** 사진 여러 장 전환 방식 (1장이면 무시) */
+  photoTransition: PhotoTransition;
+  /** 사진 한 장당 시간(초). 0 = 곡 길이에 맞춰 균등 분배 */
+  photoSeconds: number;
+  /** 글자색 #rrggbb — 빈 문자열 = 자동(글자 뒤 바탕 밝기를 보고 대비 나는 색) */
+  titleColor: string;
+  artistColor: string;
+  phraseColor: string;
 }
 
 export const DEFAULT_SETTINGS: CoverSettings = {
@@ -91,7 +106,14 @@ export const DEFAULT_SETTINGS: CoverSettings = {
   title: '',
   artist: '',
   phrase: '',
+  photoTransition: 'fade',
+  photoSeconds: 0,
+  titleColor: '',
+  artistColor: '',
+  phraseColor: '',
 };
+
+const hexOrEmpty = (v: unknown): string => (typeof v === 'string' && /^#[0-9a-f]{6}$/i.test(v) ? v.toLowerCase() : '');
 
 /** 저장값을 읽을 때 빠진 필드·이상값을 기본값으로 메운다 (프리셋·JSON 가져오기 공용) */
 export function normalizeSettings(raw: unknown): CoverSettings {
@@ -130,6 +152,12 @@ export function normalizeSettings(raw: unknown): CoverSettings {
     title: pick('title', str(200)),
     artist: pick('artist', str(200)),
     phrase: pick('phrase', str(300)),
+    // 새 필드 — 없으면(구형 프리셋) 자동 글자색 · 크로스페이드 · 곡 길이에 맞춤
+    photoTransition: pick('photoTransition', inList(['fade', 'slide', 'cut'])),
+    photoSeconds: pick('photoSeconds', num(0, 120)),
+    titleColor: hexOrEmpty(o.titleColor),
+    artistColor: hexOrEmpty(o.artistColor),
+    phraseColor: hexOrEmpty(o.phraseColor),
   };
 }
 
@@ -189,10 +217,12 @@ export interface FrameState {
   /** 곡 길이(초). 오디오가 없으면 가사 끝 + 여유 또는 30 */
   duration: number;
   playing: boolean;
-  /** 사진 (없으면 null — 테마가 자리 표시를 그린다) */
+  /** 사진 (없으면 null — 테마가 자리 표시를 그린다). 여러 장이면 첫 장 */
   image: CanvasImageSource | null;
   imageW: number;
   imageH: number;
+  /** 사진 여러 장 (2장 이상일 때 drawPhoto가 settings.photoTransition으로 전환). 없거나 1장이면 image만 쓴다 */
+  images?: SlideImage[];
   lyrics: LyricLine[];
   /** 주파수 데이터 0~255, 길이 = analyser.frequencyBinCount (fftSize 2048 → 1024). 오디오 없으면 null */
   spectrum: Uint8Array | null;
@@ -263,6 +293,8 @@ export interface RenderKit {
   progress: number;
   /** m:ss */
   fmtTime: (sec: number) => string;
+  /** 명시된 텍스트 역할에 맞는 직접 지정색 또는 자동 대비색. */
+  textInk?: (ctx: CanvasRenderingContext2D, role: 'title' | 'artist' | 'phrase', s: string, x: number, y: number, fallback: string, maxW?: number) => string;
 }
 
 export interface ThemeDef {
@@ -287,6 +319,8 @@ export interface ThemeDef {
 export interface ExportInput {
   settings: CoverSettings;
   image: ImageBitmap | HTMLImageElement | null;
+  /** 사진 여러 장 (순서대로). 없으면 image 한 장 */
+  images?: SlideImage[];
   lyrics: LyricLine[];
   /** 디코딩된 오디오 (없으면 무음 영상) */
   audio: AudioBuffer | null;
@@ -296,6 +330,7 @@ export interface ExportInput {
 export interface ExportProgress { phase: string; ratio: number }
 
 export interface VideoExportOptions {
+  quality?: 'small' | 'balanced' | 'high';
   start: number;
   end: number;
   fps: number;

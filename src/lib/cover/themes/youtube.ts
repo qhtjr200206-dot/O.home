@@ -162,7 +162,7 @@ export const youtube: ThemeDef = {
     const lh = 46 * u;
     const lw = logo(ctx, pad, pad, lh, p.accent);
     text(ctx, kit, 'Playlist', pad + lw + 14 * u, pad + lh / 2 + 2 * u, { font: kit.font(34 * u, 800), color: ink, baseline: 'middle', spacing: -0.5 * u });
-    if (s.phrase) text(ctx, kit, s.phrase, (L.panel ? L.thumb.x + L.thumb.w : W - pad), pad + lh / 2 + 2 * u, { font: kit.font(24 * u, 500), color: sub, baseline: 'middle', align: 'right', maxW: W * 0.45 });
+    if (s.phrase) text(ctx, kit, s.phrase, (L.panel ? L.thumb.x + L.thumb.w : W - pad), pad + lh / 2 + 2 * u, { role: 'phrase', font: kit.font(24 * u, 500), color: sub, baseline: 'middle', align: 'right', maxW: W * 0.45 });
     thumbnail(ctx, f, kit, L, red, ink);
     // 채널 줄 — 동그란 프로필(사진) + 제목 + 아티스트 · 재생목록
     const t = L.thumb;
@@ -171,15 +171,15 @@ export const youtube: ThemeDef = {
     kit.drawPhoto(ctx, { x: ax - av, y: ay - av, w: av * 2, h: av * 2 });
     ctx.restore();
     const ix = t.x + av * 2 + 22 * u, iw = t.w - av * 2 - 22 * u;
-    text(ctx, kit, titleOf(f), ix, L.infoY + 30 * u, { font: kit.font(40 * u, 800), color: ink, maxW: iw });
-    text(ctx, kit, `${artistOf(f)} · 재생목록`, ix, L.infoY + 74 * u, { font: kit.font(26 * u, 500), color: sub, maxW: iw });
+    text(ctx, kit, titleOf(f), ix, L.infoY + 30 * u, { role: 'title', font: kit.font(40 * u, 800), color: ink, maxW: iw });
+    text(ctx, kit, `${artistOf(f)} · 재생목록`, ix, L.infoY + 74 * u, { role: 'artist', font: kit.font(26 * u, 500), color: sub, maxW: iw });
     // 가사 — 세로형은 채널 줄 아래 크게, 가로형은 오른쪽 재생목록 패널
     if (L.panel) {
       const P = L.panel;
       rr(ctx, P.x, P.y, P.w, P.h, 22 * u); ctx.fillStyle = p.tone === 'dark' ? alpha('#ffffff', 0.06) : alpha('#000000', 0.04); ctx.fill();
       ctx.strokeStyle = p.line; ctx.lineWidth = 1.5 * u; ctx.stroke();
-      text(ctx, kit, titleOf(f), P.x + 28 * u, P.y + 52 * u, { font: kit.font(30 * u, 800), color: ink, maxW: P.w - 56 * u });
-      text(ctx, kit, `${artistOf(f)} · 가사`, P.x + 28 * u, P.y + 90 * u, { font: kit.font(22 * u, 500), color: sub, maxW: P.w - 56 * u });
+      text(ctx, kit, titleOf(f), P.x + 28 * u, P.y + 52 * u, { role: 'title', font: kit.font(30 * u, 800), color: ink, maxW: P.w - 56 * u });
+      text(ctx, kit, `${artistOf(f)} · 가사`, P.x + 28 * u, P.y + 90 * u, { role: 'artist', font: kit.font(22 * u, 500), color: sub, maxW: P.w - 56 * u });
       ctx.fillStyle = p.line; ctx.fillRect(P.x, P.y + 112 * u, P.w, 1.5 * u);
     }
     if (L.lyr) {

@@ -49,11 +49,11 @@ export const half: ThemeDef = {
     const x = panel.x + pad, w = panel.w - pad * 2;
     let y = panel.y + pad;
     ctx.save(); setSpacing(ctx, 4 * u);
-    text(ctx, kit, (s.phrase || 'PLAYLIST').toUpperCase(), x, y + 18 * u, { font: kit.font(20 * u, 700, kit.mono), color: acc, maxW: w });
+    text(ctx, kit, (s.phrase || 'PLAYLIST').toUpperCase(), x, y + 18 * u, { role: s.phrase ? 'phrase' : undefined, font: kit.font(20 * u, 700, kit.mono), color: acc, maxW: w });
     ctx.restore();
     const big = (tall ? 76 : 64) * u;
-    text(ctx, kit, titleOf(f), x, y + 30 * u + big, { font: kit.font(big, 900), color: ink, maxW: w });
-    text(ctx, kit, artistOf(f), x, y + 30 * u + big + 50 * u, { font: kit.font(30 * u, 500), color: sub, maxW: w });
+    text(ctx, kit, titleOf(f), x, y + 30 * u + big, { role: 'title', font: kit.font(big, 900), color: ink, maxW: w });
+    text(ctx, kit, artistOf(f), x, y + 30 * u + big + 50 * u, { role: 'artist', font: kit.font(30 * u, 500), color: sub, maxW: w });
     y += 30 * u + big + 90 * u;
     let b = panel.y + panel.h - pad;
     if (s.showProgress) {

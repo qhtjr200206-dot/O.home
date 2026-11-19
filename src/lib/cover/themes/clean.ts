@@ -36,10 +36,10 @@ export const clean: ThemeDef = {
     };
     // 글자 묶음 (가운데 정렬) — 제목·아티스트·문구 → 가사 → 비주얼라이저 → 진행
     const block = (cx: number, top: number, bottom: number, w: number, big: number) => {
-      text(ctx, kit, titleOf(f), cx, top + big * 0.9, { font: kit.font(big, 800), color: ink, align: 'center', maxW: w });
-      text(ctx, kit, artistOf(f), cx, top + big * 0.9 + 46 * u, { font: kit.font(28 * u, 500), color: sub, align: 'center', maxW: w });
+      text(ctx, kit, titleOf(f), cx, top + big * 0.9, { role: 'title', font: kit.font(big, 800), color: ink, align: 'center', maxW: w });
+      text(ctx, kit, artistOf(f), cx, top + big * 0.9 + 46 * u, { role: 'artist', font: kit.font(28 * u, 500), color: sub, align: 'center', maxW: w });
       let y = top + big * 0.9 + 46 * u;
-      if (s.phrase) { text(ctx, kit, s.phrase, cx, y + 40 * u, { font: kit.font(22 * u, 500), color: acc, align: 'center', maxW: w }); y += 40 * u; }
+      if (s.phrase) { text(ctx, kit, s.phrase, cx, y + 40 * u, { role: 'phrase', font: kit.font(22 * u, 500), color: acc, align: 'center', maxW: w }); y += 40 * u; }
       let b = bottom;
       if (s.showProgress) {
         const pw = Math.min(w, 520 * u);

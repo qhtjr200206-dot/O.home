@@ -62,7 +62,9 @@ function record(ctx: CanvasRenderingContext2D, f: FrameState, kit: RenderKit, cx
     ctx.fillStyle = f.palette.onAccent;
     ctx.textAlign = 'center';
     ctx.font = kit.font(L * 0.15, 700);
+    ctx.fillStyle = kit.textInk?.(ctx, 'title', titleOf(f), 0, -L * 0.42, f.palette.onAccent, L * 1.4) ?? f.palette.onAccent;
     ctx.fillText(kit.fitText(ctx, titleOf(f), L * 1.4), 0, -L * 0.42);
+    ctx.fillStyle = f.palette.onAccent;
     ctx.font = kit.font(L * 0.1, 500, kit.mono);
     ctx.fillText('SIDE A · 33⅓ RPM', 0, L * 0.55);
   }
@@ -225,12 +227,12 @@ export const vinyl: ThemeDef = {
     const big = shape === 'tall' ? 64 : 52;
     ctx.save();
     text(ctx, kit, 'NOW SPINNING', tx, ty, { font: kit.font(18 * u, 700, kit.mono), color: acc, spacing: 4 * u });
-    text(ctx, kit, titleOf(f), tx, ty + (big + 18) * u, { font: kit.font(big * u, 800), color: ink, maxW: tw });
-    text(ctx, kit, artistOf(f), tx, ty + (big + 66) * u, { font: kit.font(30 * u, 500), color: sub, maxW: tw });
+    text(ctx, kit, titleOf(f), tx, ty + (big + 18) * u, { role: 'title', font: kit.font(big * u, 800), color: ink, maxW: tw });
+    text(ctx, kit, artistOf(f), tx, ty + (big + 66) * u, { role: 'artist', font: kit.font(30 * u, 500), color: sub, maxW: tw });
     if (s.phrase) {
       ctx.fillStyle = alpha(acc, 0.9);
       ctx.fillRect(tx, ty + (big + 96) * u, 36 * u, 3 * u);
-      text(ctx, kit, s.phrase, tx + 50 * u, ty + (big + 106) * u, { font: kit.font(24 * u, 500), color: sub, maxW: tw - 50 * u });
+      text(ctx, kit, s.phrase, tx + 50 * u, ty + (big + 106) * u, { role: 'phrase', font: kit.font(24 * u, 500), color: sub, maxW: tw - 50 * u });
     }
     ctx.restore();
 

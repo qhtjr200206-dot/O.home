@@ -182,15 +182,15 @@ export function photoBackdrop(ctx: CanvasRenderingContext2D, f: FrameState, kit:
 /** 글자 한 줄 — maxW 넘으면 … */
 export function text(
   ctx: CanvasRenderingContext2D, kit: RenderKit, s: string, x: number, y: number,
-  o: { font: string; color: string; align?: CanvasTextAlign; baseline?: CanvasTextBaseline; maxW?: number; alpha?: number; spacing?: number },
+  o: { font: string; color: string; align?: CanvasTextAlign; baseline?: CanvasTextBaseline; maxW?: number; alpha?: number; spacing?: number; role?: 'title' | 'artist' | 'phrase' },
 ) {
   ctx.save();
   ctx.font = o.font;
-  ctx.fillStyle = o.color;
   ctx.textAlign = o.align ?? 'left';
   ctx.textBaseline = o.baseline ?? 'alphabetic';
   if (o.alpha != null) ctx.globalAlpha *= o.alpha;
   if (o.spacing) setSpacing(ctx, o.spacing);
+  ctx.fillStyle = (o.role ? kit.textInk?.(ctx, o.role, s, x, y, o.color, o.maxW) : undefined) ?? o.color;
   ctx.fillText(o.maxW ? kit.fitText(ctx, s, o.maxW) : s, x, y);
   ctx.restore();
 }

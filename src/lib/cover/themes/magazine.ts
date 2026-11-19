@@ -105,8 +105,8 @@ export const magazine: ThemeDef = {
       const colX = pad, colW = W * 0.42 - pad * 1.8;
       const ty = issueY + 110 * u;
       text(ctx, kit, 'COVER STORY', colX, ty - 40 * u, { font: kit.font(18 * u, 700, kit.mono), color: acc, spacing: 3 * u });
-      text(ctx, kit, titleOf(f), colX, ty + 30 * u, { font: kit.font(76 * u, 900), color: ink, maxW: colW });
-      text(ctx, kit, artistOf(f), colX, ty + 82 * u, { font: kit.font(32 * u, 500), color: nat ? alpha(ink, 0.7) : p.inkSoft, maxW: colW });
+      text(ctx, kit, titleOf(f), colX, ty + 30 * u, { role: 'title', font: kit.font(76 * u, 900), color: ink, maxW: colW });
+      text(ctx, kit, artistOf(f), colX, ty + 82 * u, { role: 'artist', font: kit.font(32 * u, 500), color: nat ? alpha(ink, 0.7) : p.inkSoft, maxW: colW });
       let lyB = bottomY - 70 * u;
       if (vizOn && s.visualizer === 'radial') {
         const R = 130 * u;
@@ -117,7 +117,7 @@ export const magazine: ThemeDef = {
       }
       if (s.phrase) {
         text(ctx, kit, '“', colX, lyB, { font: kit.font(80 * u, 900), color: acc });
-        text(ctx, kit, s.phrase, colX + 46 * u, lyB - 6 * u, { font: kit.font(26 * u, 700), color: ink, maxW: colW - 46 * u });
+        text(ctx, kit, s.phrase, colX + 46 * u, lyB - 6 * u, { role: 'phrase', font: kit.font(26 * u, 700), color: ink, maxW: colW - 46 * u });
         lyB -= 80 * u;
       }
       const lyT = ty + 130 * u;
@@ -139,12 +139,12 @@ export const magazine: ThemeDef = {
     const ty = bottomY - (shape === 'tall' ? 150 : 110) * u;
     const lineColor = full ? onPhoto : ink;
     text(ctx, kit, 'COVER STORY', colX, ty - (shape === 'tall' ? 100 : 78) * u, { font: kit.font(18 * u, 700, kit.mono), color: nat ? (full ? '#ffffff' : p.accent) : acc, spacing: 3 * u });
-    text(ctx, kit, titleOf(f), colX, ty, { font: kit.font((shape === 'tall' ? 92 : 68) * u, 900), color: lineColor, maxW: leftW });
-    text(ctx, kit, artistOf(f), colX, ty + 48 * u, { font: kit.font(30 * u, 500), color: nat ? (full ? 'rgba(255,255,255,0.8)' : alpha(ink, 0.7)) : p.inkSoft, maxW: leftW });
+    text(ctx, kit, titleOf(f), colX, ty, { role: 'title', font: kit.font((shape === 'tall' ? 92 : 68) * u, 900), color: lineColor, maxW: leftW });
+    text(ctx, kit, artistOf(f), colX, ty + 48 * u, { role: 'artist', font: kit.font(30 * u, 500), color: nat ? (full ? 'rgba(255,255,255,0.8)' : alpha(ink, 0.7)) : p.inkSoft, maxW: leftW });
     const rx = colX + leftW + 40 * u, rw = W - pad - rx;
     if (s.phrase) {
       text(ctx, kit, '“', rx, bcY - 44 * u, { font: kit.font(70 * u, 900), color: acc });
-      text(ctx, kit, s.phrase, rx + 38 * u, bcY - 56 * u, { font: kit.font(22 * u, 700), color: lineColor, maxW: rw - 38 * u });
+      text(ctx, kit, s.phrase, rx + 38 * u, bcY - 56 * u, { role: 'phrase', font: kit.font(22 * u, 700), color: lineColor, maxW: rw - 38 * u });
     }
     barcode(ctx, f, kit, bcX, bcY, bcW, bcH, BAR_INK, '#ffffff');
     // 사진 위: 가사 (흰 굵은 커버 문구) + 아래쪽 비주얼라이저

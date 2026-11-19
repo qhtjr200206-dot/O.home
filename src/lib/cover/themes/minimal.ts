@@ -64,12 +64,12 @@ export const minimal: ThemeDef = {
     // 머리말 — 문구가 있으면 「플레이리스트 이름」 자리에
     const head = (x: number, y: number, align: CanvasTextAlign, maxW: number) => {
       text(ctx, kit, 'PLAYING FROM PLAYLIST', x, y, { font: kit.font(17 * u, 600, kit.mono), color: sub, align, spacing: 2.4 * u, maxW });
-      if (s.phrase) text(ctx, kit, s.phrase, x, y + 34 * u, { font: kit.font(26 * u, 700), color: white, align, maxW });
+      if (s.phrase) text(ctx, kit, s.phrase, x, y + 34 * u, { role: 'phrase', font: kit.font(26 * u, 700), color: white, align, maxW });
     };
     const titleBlock = (x: number, y: number, w: number, big = 1) => {
       // y = 제목 글자 위쪽
-      text(ctx, kit, titleOf(f), x, y + 50 * u * big, { font: kit.font(54 * u * big, 800), color: white, maxW: w - 70 * u });
-      text(ctx, kit, artistOf(f), x, y + 98 * u * big, { font: kit.font(30 * u * big, 500), color: sub, maxW: w - 70 * u });
+      text(ctx, kit, titleOf(f), x, y + 50 * u * big, { role: 'title', font: kit.font(54 * u * big, 800), color: white, maxW: w - 70 * u });
+      text(ctx, kit, artistOf(f), x, y + 98 * u * big, { role: 'artist', font: kit.font(30 * u * big, 500), color: sub, maxW: w - 70 * u });
       // 좋아요 표시 (포인트색 원 안 체크)
       const hx = x + w - 24 * u, hy = y + 36 * u * big;
       ctx.beginPath(); ctx.arc(hx, hy, 22 * u, 0, Math.PI * 2); ctx.fillStyle = f.palette.accent; ctx.fill();

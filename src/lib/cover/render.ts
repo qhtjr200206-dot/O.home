@@ -9,6 +9,8 @@ import { getTheme } from './themes';
 import { fontFamily, fontCss, MONO_FAMILY } from './fonts';
 import { lineIndexAt } from './lyrics';
 import { alpha } from './color';
+import { slideAt } from './slides';
+import { resolveInk, sampleUnder } from './ink';
 
 const TAU = Math.PI * 2;
 const clamp = (v: number, a: number, b: number) => (v < a ? a : v > b ? b : v);
@@ -52,8 +54,6 @@ export function motionAt(kind: MotionId, t: number, strength: number): MotionSta
 /** 장면(전경) 전체에 거는 breathe 배율 비율 — 사진 안쪽 줌보다 약하게 */
 const SCENE_BREATHE = 0.4;
 
-/** 전체 배경 사진(선명·그라데이션·가사 블러)에 덮는 바탕색 양.
- *  다크 기본(auto)은 사진 그대로, 라이트 톤은 흰색으로 밝게, 배경색을 고르면 그 색으로 물들인다. */
 export function backdropWash(tone: 'dark' | 'light', custom: boolean): number {
   if (tone === 'light') return custom ? 0.42 : 0.4;
   return custom ? 0.34 : 0;
@@ -64,6 +64,7 @@ export interface FrameInput {
   width: number; height: number;
   time: number; duration: number; playing: boolean;
   image: CanvasImageSource | null; imageW: number; imageH: number;
+  images?: FrameState['images'];
   lyrics: LyricLine[];
   spectrum: Uint8Array | null; waveform: Uint8Array | null; level: number;
   palette: Palette;
@@ -189,11 +190,12 @@ interface CacheEntry { key: string; canvas: Canvasish }
 const photoCache = new WeakMap<object, CacheEntry[]>();
 // 정렬된 frost 결과는 원본 이미지 기준으로 캐시한다. 움직이는 crop은 최신 한 프레임만 보관.
 const frostCache = new WeakMap<object, CacheEntry>();
+const alignedPhotoCache = new WeakMap<object, CacheEntry>();
 const CACHE_PER_IMAGE = 8;
 
 /** 사진 캐시 비우기 (WeakMap이라 사진을 버리면 저절로 GC됨 — 보통 안 불러도 됨) */
 export function clearPhotoCache(img?: object) {
-  if (img) { photoCache.delete(img); frostCache.delete(img); }
+  if (img) { photoCache.delete(img); frostCache.delete(img); alignedPhotoCache.delete(img); }
 }
 
 /** 흐림·흑백 버전을 rect 비율로 미리 만들어 둔다. blur가 크면 해상도를 낮춰 빠르게(어차피 흐림) */
@@ -671,38 +673,56 @@ export function buildKit(f: FrameState, textRect?: Rect, panels: Rect[] = []): R
     ctx.beginPath();
     roundRectPath(ctx, rect.x, rect.y, rect.w, rect.h, opts.radius ?? 0);
     ctx.clip();
-    if (f.image && f.imageW > 0 && f.imageH > 0) {
+    // 여러 장이면 현재/다음 사진을 같은 좌표계에서 그린다. frost(가사 블러)도 각 사진에 독립 적용한 뒤 합성한다.
+    const photos = f.images && f.images.length > 0 ? f.images : (f.image ? [{ img: f.image, w: f.imageW, h: f.imageH }] : []);
+    const ss = slideAt(f.time, photos.length, f.duration, f.settings.photoSeconds ?? 0, f.settings.photoTransition ?? 'fade');
+    const drawOne = (p: typeof photos[number]) => {
+      const img = p.img, iw = p.w, ih = p.h;
+      if (img && iw > 0 && ih > 0) {
       // 사진 안쪽 움직임: 켄번즈(줌+패닝), 브리딩(줌)
-      const zoom = kind === 'kenburns' || kind === 'breathe' ? motion.scale : 1;
+      const zoom = (kind === 'kenburns' || kind === 'breathe' ? motion.scale : 1) * (p.crop?.zoom ?? 1);
       // 패닝량(1080 단위)은 rect 크기에 비례 → 작은 사진 칸에서도 같은 느낌. 넘치는 범위 안으로 제한
       const pk = (Math.min(rect.w, rect.h) / 1080) * 2;
-      const px = kind === 'kenburns' ? motion.dx * pk : 0, py = kind === 'kenburns' ? motion.dy * pk : 0;
+      const cw0 = iw * Math.max(rect.w / iw, rect.h / ih) * zoom, ch0 = ih * Math.max(rect.w / iw, rect.h / ih) * zoom;
+      const px = (kind === 'kenburns' ? motion.dx * pk : 0) + (p.crop?.x ?? 0) * Math.max(0, (cw0 - rect.w) / 2), py = (kind === 'kenburns' ? motion.dy * pk : 0) + (p.crop?.y ?? 0) * Math.max(0, (ch0 - rect.h) / 2);
       if (blur > 0 || gray) {
-        const c = processedPhoto(f.image, f.imageW, f.imageH, rect.w, rect.h, blur, gray);
-        // 흐린 사진은 살짝 크게(1.06) 그려 흐림 가장자리를 숨긴다
-        if (c) drawCover(ctx, c as CanvasImageSource, c.width, c.height, rect, zoom * (blur > 0 ? 1.06 : 1), px, py);
+        // 원본 이미지와 crop/효과를 키로 사용해 정지 프레임의 처리 결과를 재사용한다.
+        const cw = Math.max(1, Math.round(rect.w)), ch = Math.max(1, Math.round(rect.h));
+        const key = JSON.stringify([iw, ih, rect.w, rect.h, blur, gray, zoom, px, py]);
+        let c = alignedPhotoCache.get(img as object)?.key === key ? alignedPhotoCache.get(img as object)!.canvas : null;
+        if (!c) {
+          const source = makeCanvas(cw, ch), sx = ctx2d(source);
+          if (sx) {
+            sx.scale(cw / rect.w, ch / rect.h);
+            drawCover(sx as CanvasRenderingContext2D, img, iw, ih, { x: 0, y: 0, w: rect.w, h: rect.h }, zoom, px, py);
+            c = processedPhoto(source as CanvasImageSource, cw, ch, rect.w, rect.h, blur, gray);
+            if (c) alignedPhotoCache.set(img as object, { key, canvas: c });
+          }
+        }
+        if (c) ctx.drawImage(c as CanvasImageSource, rect.x, rect.y, rect.w, rect.h);
       } else {
-        drawCover(ctx, f.image, f.imageW, f.imageH, rect, zoom, px, py);
+        drawCover(ctx, img, iw, ih, rect, zoom, px, py);
       }
     } else {
       drawPlaceholder(ctx, f, rect, gray, blur > 0);
     }
-    if (backdrop && style === 'frost' && panels.length > 0 && f.image && f.imageW > 0 && f.imageH > 0 && f.settings.bgStrength > 0) {
+    if (backdrop && style === 'frost' && panels.length > 0 && img && iw > 0 && ih > 0 && f.settings.bgStrength > 0) {
       // 원본과 같은 crop/zoom/pan을 먼저 적용해야 흐린 부분의 사진이 어긋나지 않는다.
       const b = f.settings.bgStrength * 36 * f.u;
       const cw = Math.max(1, Math.round(rect.w)), ch = Math.max(1, Math.round(rect.h));
-      const zoom = kind === 'kenburns' || kind === 'breathe' ? motion.scale : 1;
+      const zoom = (kind === 'kenburns' || kind === 'breathe' ? motion.scale : 1) * (p.crop?.zoom ?? 1);
       const pk = Math.min(rect.w, rect.h) / 1080 * 2;
-      const px = kind === 'kenburns' ? motion.dx * pk : 0, py = kind === 'kenburns' ? motion.dy * pk : 0;
-      const key = JSON.stringify([f.imageW, f.imageH, rect.w, rect.h, b, gray, zoom, px, py]);
-      let c = frostCache.get(f.image as object)?.key === key ? frostCache.get(f.image as object)!.canvas : null;
+      const cw0 = iw * Math.max(rect.w / iw, rect.h / ih) * zoom, ch0 = ih * Math.max(rect.w / iw, rect.h / ih) * zoom;
+      const px = (kind === 'kenburns' ? motion.dx * pk : 0) + (p.crop?.x ?? 0) * Math.max(0, (cw0 - rect.w) / 2), py = (kind === 'kenburns' ? motion.dy * pk : 0) + (p.crop?.y ?? 0) * Math.max(0, (ch0 - rect.h) / 2);
+      const key = JSON.stringify([iw, ih, rect.w, rect.h, b, gray, zoom, px, py]);
+      let c = frostCache.get(img as object)?.key === key ? frostCache.get(img as object)!.canvas : null;
       if (!c) {
         const source = makeCanvas(cw, ch), sx = ctx2d(source);
         if (sx) {
           sx.scale(cw / rect.w, ch / rect.h);
-          drawCover(sx as CanvasRenderingContext2D, f.image, f.imageW, f.imageH, { x: 0, y: 0, w: rect.w, h: rect.h }, zoom, px, py);
+          drawCover(sx as CanvasRenderingContext2D, img, iw, ih, { x: 0, y: 0, w: rect.w, h: rect.h }, zoom, px, py);
           c = processedPhoto(source as CanvasImageSource, cw, ch, rect.w, rect.h, b, gray, true);
-          if (c) frostCache.set(f.image as object, { key, canvas: c });
+          if (c) frostCache.set(img as object, { key, canvas: c });
         }
       }
       if (c) {
@@ -729,9 +749,18 @@ export function buildKit(f: FrameState, textRect?: Rect, panels: Rect[] = []): R
           ctx.restore();
       }
     }
+    };
+    if (!photos.length) drawPlaceholder(ctx, f, rect, gray, blur > 0);
+    else if (ss.p <= 0 || ss.a === ss.b) drawOne(photos[ss.a]);
+    else if ((f.settings.photoTransition ?? 'fade') === 'slide') {
+      // 두 사진을 함께 왼쪽으로 밀기 — 원래 crop/블러 좌표는 그대로, 바깥 클립으로 잘라 낸다.
+      ctx.save(); ctx.translate(-rect.w * ss.p, 0); drawOne(photos[ss.a]); ctx.restore();
+      ctx.save(); ctx.translate(rect.w * (1 - ss.p), 0); drawOne(photos[ss.b]); ctx.restore();
+    } else {
+      drawOne(photos[ss.a]);
+      ctx.save(); ctx.globalAlpha *= ss.p; drawOne(photos[ss.b]); ctx.restore();
+    }
     if (backdrop && style !== 'blur') {
-      // 선명·그라데이션·가사 블러에서도 배경색(직접 고른 색)과 라이트 톤이 화면에 반영되게 사진 전체에 옅게 덮는다.
-      // (전에는 'blur'일 때만 덮개를 깔아서, 다른 처리에서는 배경 추천색을 골라도 그림이 그대로였다)
       const wash = backdropWash(f.palette.tone, f.palette.bgCustom);
       if (wash > 0) { ctx.fillStyle = alpha(f.palette.dim, wash); ctx.fillRect(rect.x, rect.y, rect.w, rect.h); }
     }
@@ -770,12 +799,24 @@ export function buildKit(f: FrameState, textRect?: Rect, panels: Rect[] = []): R
     ctx.restore();
   };
 
+  // 테마 텍스트 헬퍼에서 폰트·정렬을 설정한 뒤 호출한다. 실제 배경을 읽으므로 사진의 해당 위치와 테마 면 모두 반영된다.
+  const textInk: NonNullable<RenderKit['textInk']> = (ctx, role, value, x, y, fallback, maxW) => {
+    const custom = role === 'title' ? f.settings.titleColor : role === 'artist' ? f.settings.artistColor : f.settings.phraseColor;
+    if (custom) return custom;
+    const metrics = ctx.measureText(value);
+    const width = Math.max(1, Math.min(maxW ?? Infinity, metrics.width));
+    const h = Math.max(1, (metrics.actualBoundingBoxAscent || 0) + (metrics.actualBoundingBoxDescent || 0)) || 16 * f.u;
+    const left = ctx.textAlign === 'center' ? x - width / 2 : (ctx.textAlign === 'right' || ctx.textAlign === 'end') ? x - width : x;
+    const top = ctx.textBaseline === 'middle' ? y - h / 2 : ctx.textBaseline === 'top' || ctx.textBaseline === 'hanging' ? y : y - h;
+    return resolveInk('', fallback, sampleUnder(ctx, left, top, width, h));
+  };
+
   return {
     family, mono: MONO_FAMILY,
     font: (px, w = 400, fam = family) => (fam === family ? fontCss(f.settings.font, px, w) : `${w} ${px}px ${fam}`),
     motion, drawPhoto, drawLyrics, drawVisualizer, fitText,
     progress: f.duration > 0 ? clamp(f.time / f.duration, 0, 1) : 0,
-    fmtTime,
+    fmtTime, textInk,
   };
 }
 

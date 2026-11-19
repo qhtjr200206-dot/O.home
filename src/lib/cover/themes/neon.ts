@@ -185,9 +185,14 @@ export const neon: ThemeDef = {
     const wall = s.photoLayout === 'background' ? p.dim : surfaceOf(f, wallBg);
     const t1 = ensureContrast(withLightness(p.accent, 0.42, 1.15), wall, 3.2);
     const t2 = ensureContrast(withLightness(mix(p.accent, '#30e0ff', 0.7), 0.36, 1.1), wall, 4.6);
-    const neonT = (str: string, x: number, y: number, font: string, which: 1 | 2, on: number) =>
-      day ? glassText(ctx, str, x, y, font, which === 1 ? t1 : t2, which === 1 ? c1 : c2, on, u)
-        : neonText(ctx, str, x, y, font, which === 1 ? c1 : c2, on, u);
+    const neonT = (str: string, x: number, y: number, font: string, which: 1 | 2, on: number, role: 'title' | 'artist') => {
+      ctx.save(); ctx.font = font; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      const base = day ? (which === 1 ? t1 : t2) : (which === 1 ? c1 : c2);
+      const ink = kit.textInk?.(ctx, role, str, x, y, base) ?? base;
+      ctx.restore();
+      if (day) glassText(ctx, str, x, y, font, ink, ink, on, u);
+      else neonText(ctx, str, x, y, font, ink, on, u);
+    };
     const on1 = flickerOn(f, 1), on2 = flickerOn(f, 2);
     const pad = 80 * u;
     let photo: { x: number; y: number; w: number } | null = null;
@@ -220,13 +225,14 @@ export const neon: ThemeDef = {
     ctx.font = kit.font(fs, 700);
     const mw = ctx.measureText(titleOf(f)).width;
     if (mw > tw) fs *= Math.max(0.45, tw / mw);
-    neonT(kit.fitText(ctx, titleOf(f), tw), tx, ty, kit.font(fs, 700), 1, on1);
+    neonT(kit.fitText(ctx, titleOf(f), tw), tx, ty, kit.font(fs, 700), 1, on1, 'title');
     ctx.save(); setSpacing(ctx, 8 * u);
-    neonT(artistOf(f).toUpperCase(), tx, ty + fs * 0.5 + 46 * u, kit.font(30 * u, 500), 2, on2);
+    neonT(artistOf(f).toUpperCase(), tx, ty + fs * 0.5 + 46 * u, kit.font(30 * u, 500), 2, on2, 'artist');
     ctx.restore();
     if (s.phrase) {
       ctx.save(); ctx.globalAlpha = nat ? 0.6 : 1;
-      ctx.font = kit.font(24 * u, 400); ctx.fillStyle = nat ? '#e8e6f0' : p.inkSoft; ctx.textAlign = 'center';
+      ctx.font = kit.font(24 * u, 400); ctx.textAlign = 'center';
+      ctx.fillStyle = kit.textInk?.(ctx, 'phrase', s.phrase, tx, ty + fs * 0.5 + 96 * u, nat ? '#e8e6f0' : p.inkSoft, tw) ?? (nat ? '#e8e6f0' : p.inkSoft);
       ctx.fillText(kit.fitText(ctx, s.phrase, tw), tx, ty + fs * 0.5 + 96 * u);
       ctx.restore();
     }

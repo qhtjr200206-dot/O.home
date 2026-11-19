@@ -76,9 +76,9 @@ function device(ctx: CanvasRenderingContext2D, f: FrameState, kit: RenderKit, x:
     kit.drawVisualizer(ctx, { x: sx + 26 * k, y: cy, w: cs, h: cs }, { kind: 'radial', color: f.palette.accent, color2: D.viz2, innerRadius: 0.45 });
   }
   const tx = sx + 26 * k + cs + 24 * k, tw = sw - (tx - sx) - 20 * k;
-  text(ctx, kit, titleOf(f), tx, cy + 46 * k, { font: kit.font(32 * k, 800), color: D.title, maxW: tw });
-  text(ctx, kit, artistOf(f), tx, cy + 88 * k, { font: kit.font(26 * k, 500), color: D.artist, maxW: tw });
-  if (s.phrase) text(ctx, kit, s.phrase, tx, cy + 126 * k, { font: kit.font(22 * k, 400), color: D.phrase, maxW: tw });
+  text(ctx, kit, titleOf(f), tx, cy + 46 * k, { role: 'title', font: kit.font(32 * k, 800), color: D.title, maxW: tw });
+  text(ctx, kit, artistOf(f), tx, cy + 88 * k, { role: 'artist', font: kit.font(26 * k, 500), color: D.artist, maxW: tw });
+  if (s.phrase) text(ctx, kit, s.phrase, tx, cy + 126 * k, { role: 'phrase', font: kit.font(22 * k, 400), color: D.phrase, maxW: tw });
   text(ctx, kit, '1 of 12', tx, cy + cs - 10 * k, { font: kit.font(20 * k, 400, kit.mono), color: D.meta });
   // 진행 막대 (광택 파란 막대)
   if (s.showProgress) {
@@ -206,11 +206,11 @@ export const player: ThemeDef = {
       const tw = land ? lr.w : (tBottom - 150 * u < art.y + art.s ? art.x - dx - 36 * u : dw);
       if (tw > 120 * u) {
         text(ctx, kit, 'NOW PLAYING', tx, tBottom - 104 * u, { font: kit.font(17 * u, 700, kit.mono), color: acc, spacing: 3 * u, maxW: tw });
-        text(ctx, kit, titleOf(f), tx, tBottom - 48 * u, { font: kit.font(46 * u, 800), color: ink, maxW: tw });
-        text(ctx, kit, artistOf(f), tx, tBottom - 6 * u, { font: kit.font(26 * u, 500), color: sub, maxW: tw });
+        text(ctx, kit, titleOf(f), tx, tBottom - 48 * u, { role: 'title', font: kit.font(46 * u, 800), color: ink, maxW: tw });
+        text(ctx, kit, artistOf(f), tx, tBottom - 6 * u, { role: 'artist', font: kit.font(26 * u, 500), color: sub, maxW: tw });
       }
       let ly = lr.y, lh = lr.h;
-      if (s.phrase) { text(ctx, kit, s.phrase, lr.x, ly + 26 * u, { font: kit.font(24 * u, 600), color: sub, maxW: lr.w }); ly += 54 * u; lh -= 54 * u; }
+      if (s.phrase) { text(ctx, kit, s.phrase, lr.x, ly + 26 * u, { role: 'phrase', font: kit.font(24 * u, 600), color: sub, maxW: lr.w }); ly += 54 * u; lh -= 54 * u; }
       kit.drawLyrics(ctx, { x: lr.x, y: ly, w: lr.w, h: lh }, { align: 'left', size: (shape === 'square' ? 38 : 44) * u, color: ink, dimColor: nat ? sub : ink, weight: 800, lineHeight: 1.4 });
       return;
     }
@@ -227,7 +227,7 @@ export const player: ThemeDef = {
       lr = { x: lx, y: pad * 2, w: W - lx - pad, h: H - pad * 4 };
     }
     device(ctx, f, kit, dx, dy, dw);
-    if (shape !== 'tall' && s.phrase) text(ctx, kit, s.phrase, lr.x, pad * 1.4, { font: kit.font(26 * u, 600), color: sub, maxW: lr.w });
+    if (shape !== 'tall' && s.phrase) text(ctx, kit, s.phrase, lr.x, pad * 1.4, { role: 'phrase', font: kit.font(26 * u, 600), color: sub, maxW: lr.w });
     kit.drawLyrics(ctx, lr, { align, size: (shape === 'square' ? 40 : 48) * u, color: ink, dimColor: nat ? sub : ink, weight: 800, lineHeight: 1.4 });
   },
 };
