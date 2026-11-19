@@ -132,6 +132,14 @@ export async function dumpAll(be: Backend | null, onProgress?: Progress): Promis
       catch { snap.collections[coll] = []; (snap.failed ??= []).push(coll); }
       i += 1;
     }
+    // 잠금 자관 내용(rel_secrets)은 업데이트 전 서버(보안 규칙·SQL 미적용)에서 읽기가 거부된다.
+    // 그때는 잠긴 자관이 하나도 없을 수밖에 없으므로(저장도 거부되므로) 「못 읽음」으로 치지 않는다 —
+    // 그러지 않으면 이 업데이트만으로 백업·이미지 정리가 멈춘다
+    if (snap.failed?.includes('rel_secrets')
+      && !(snap.collections.relations ?? []).some(r => (r as { locked?: unknown }).locked)) {
+      snap.failed = snap.failed.filter(c => c !== 'rel_secrets');
+      if (!snap.failed.length) delete snap.failed;
+    }
     onProgress?.('설정 읽는 중');
     try { snap.settings = await be.fetchAllSettings(); }
     catch { snap.settings = {}; (snap.failed ??= []).push('설정'); }

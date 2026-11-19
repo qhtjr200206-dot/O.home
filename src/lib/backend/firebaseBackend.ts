@@ -409,6 +409,25 @@ export async function createFirebaseBackend(cfg: FirebaseCfg): Promise<Backend> 
       return path;
     },
 
+    /* 비공개(잠금) 자관 열기 — 비밀번호는 서버(/api/rels/unlock, Admin SDK)가 비공개 문서의
+       검증값과 비교한다. 멤버공개 자관은 로그인 토큰도 함께 보내야 서버가 통과시킨다 */
+    async unlockRel(id, password) {
+      try {
+        const token = await auth.currentUser?.getIdToken().catch(() => undefined);
+        const res = await fetch('/api/rels/unlock', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', ...(token ? { authorization: `Bearer ${token}` } : {}) },
+          body: JSON.stringify({ id, password }),
+          cache: 'no-store',
+        });
+        const json = await res.json().catch(() => ({})) as { error?: string; rel?: ListItem; answers?: ListItem[] };
+        if (!res.ok || !json.rel) return { ok: false, error: json.error ?? '열지 못했습니다', status: res.status };
+        return { ok: true, rel: json.rel, answers: json.answers ?? [] };
+      } catch {
+        return { ok: false, error: '서버에 연결하지 못했습니다' };
+      }
+    },
+
     async listFiles() {
       // 저장하는 주소가 다운로드 URL이므로 목록도 같은 형태로 돌려줘야 대조가 된다
       const res = await stMod.listAll(stMod.ref(storage, 'ohome'));

@@ -34,7 +34,8 @@ service cloud.firestore {
       return name in [
         'posts', 'guestbook', 'characters', 'relations', 'gallery', 'roadview',
         'trpg_logs', 'trpg_chars', 'dotori', 'playlog', 'rp_rooms', 'threads',
-        'diary', 'memos', 'commissions', 'applicants', 'moods'
+        'diary', 'memos', 'commissions', 'applicants', 'moods',
+        'rel_secrets'   // 비공개(잠금) 자관 내용 — 늘 private (관리자·작성자만, 방문자는 /api/rels/unlock)
       ];
     }
 

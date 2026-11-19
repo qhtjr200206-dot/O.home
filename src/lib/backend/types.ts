@@ -38,6 +38,11 @@ export interface BackendCheck {
 
 export interface ListItem { id: string; [k: string]: unknown }
 
+/** 비공개(잠금) 자관 열기 결과 — 서버가 비밀번호를 확인한 뒤에만 내용(rel)과 답변을 준다 */
+export type RelUnlockResult =
+  | { ok: true; rel: ListItem; answers: ListItem[] }
+  | { ok: false; error: string; status?: number };
+
 export interface Backend {
   kind: BackendKind;
 
@@ -79,6 +84,10 @@ export interface Backend {
    *  /api/trpg/unlock(Admin SDK)만 signed URL을 발급해 꺼낼 수 있다. Firebase에만 구현 —
    *  지원하지 않는 백엔드는 undefined를 반환해 호출부가 공개 업로드로 폴백하게 한다. */
   uploadPrivateFile?(blob: Blob, ext: string): Promise<string>;
+  /** 비공개(잠금) 자관 열기 — 비밀번호를 **서버에서** 확인하고 통과하면 내용을 돌려준다.
+   *  Firebase: /api/rels/unlock(Admin SDK) · Supabase: unlock_relation() RPC(security definer).
+   *  비공개 문서(rel_secrets)는 보안 규칙상 관리자·작성자만 직접 읽을 수 있다. */
+  unlockRel?(id: string, password: string): Promise<RelUnlockResult>;
   /** 저장소에 있는 파일 전부 — 어디서도 참조하지 않는 파일을 찾아 지우는 데 쓴다.
    *  글을 지워도 이미지는 저장소에 남기 때문에(참조가 다른 곳에 남아 있을 수 있어 자동 삭제는 위험)
    *  관리자가 환경설정에서 직접 확인하고 정리한다. */
@@ -127,6 +136,10 @@ export const COLLECTION_OF: Record<string, string> = {
   // 알림 — 기기 보관이던 것을 서버로 (v2.0 포크 제보 「알림이 안 와요」).
   // 행 주인(authorId)을 받는 사람으로 적어, 받는 사람 계정이 어느 기기에서나 받아 간다
   'ohome.notif.v1': 'notifications',
+  // 비공개(잠금) 자관의 내용 — 공개 목록 문서(relations)에는 커버·제목만 남기고 나머지는 여기에
+  // 항상 'private'로 둔다. 관리자·작성자만 직접 읽고, 방문자는 비밀번호를 통과해야 서버가 내준다
+  // (relLock.ts · /api/rels/unlock · unlock_relation RPC)
+  'ohome.relsecret.v1': 'rel_secrets',
 };
 
 export const CONTENT_COLLECTIONS = Object.values(COLLECTION_OF);

@@ -5,8 +5,9 @@ import React, { Suspense } from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { useAuth } from '@/lib/auth';
 import { useLocalList } from '@/lib/postStore';
-import { Character, CHAR_SEED, Relation, REL_SEED, findByKey } from '@/lib/charStore';
+import { Character, CHAR_SEED, Relation, REL_SEED, findByKey, QaAnswerRow, QA_KEY, QA_SEED } from '@/lib/charStore';
 import { RelForm } from '@/components/rels/RelForm';
+import { RelLockPanel } from '@/components/rels/RelLockPanel';
 import { useToast } from '@/components/ui/Toast';
 import { PageTitle, EditableDesc } from '@/components/ui/PageText';
 
@@ -19,15 +20,17 @@ function RelEditInner() {
   const auId = params.get('au') ?? undefined;
   const [rels, setRels, loaded] = useLocalList<Relation>('ohome.rels.v1', REL_SEED);
   const [chars] = useLocalList<Character>('ohome.chars.v1', CHAR_SEED);
+  const [qaRows, setQaRows] = useLocalList<QaAnswerRow>(QA_KEY, QA_SEED);   // 잠금 시 답변도 비공개로
 
   // 별명 주소로도 열린다 (v2.0 사용자 요청)
   const rel = findByKey(rels, id);
   const auObj = auId ? rel?.aus.find(a => a.id === auId && a.id !== 'base') : undefined;
   if (!loaded) return <section className="page" />;
-  if (!isAdmin || !rel) {
+  if (!isAdmin || !rel || rel.lockStub) {
     return (
       <section className="page">
-        <div className="page-head"><PageTitle>EDIT</PageTitle><p>{!rel ? '자관을 찾을 수 없습니다' : '관리자 전용'}</p></div>
+        <div className="page-head"><PageTitle>EDIT</PageTitle><p>{!rel ? '자관을 찾을 수 없습니다' : !isAdmin ? '관리자 전용'
+          : '잠금 자관의 내용을 서버에서 읽지 못했습니다 — 새로고침한 뒤 다시 시도해 주세요'}</p></div>
       </section>
     );
   }
@@ -38,6 +41,11 @@ function RelEditInner() {
         <PageTitle>EDIT — {rel.name}{auObj ? ` · ${auObj.label}` : ''}</PageTitle>
         <EditableDesc k="rels-edit-desc" def="자관 정보 수정 — 멤버·타임라인·문답·AU는 상세 페이지에서 관리합니다" />
       </div>
+      {/* 비공개(잠금) 자관 — 자관 전체 설정이라 원본 편집에서만. 바로 저장된다 (폼 SAVE와 별개) */}
+      {!auObj && (
+        <RelLockPanel rel={rel} rels={rels} setRels={setRels} qaRows={qaRows} setQaRows={setQaRows}
+          onDone={() => router.push(`/rels/${rel.id}`)} />
+      )}
       <RelForm
         initial={rel}
         auId={auObj?.id}

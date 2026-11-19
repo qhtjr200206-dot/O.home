@@ -189,6 +189,8 @@ export interface QaAnswerRow extends QaAnswer {
   auId: string;    // AU id (원본은 'base')
   no: number;      // 질문 번호
   date: string;    // 정렬용
+  /** 잠금 자관의 답변은 'private'로 저장한다 — 비밀번호를 통과한 요청에만 서버가 내준다 (relLock.ts) */
+  visibility?: 'private';
 }
 
 export const QA_SEED: QaAnswerRow[] = [];
@@ -407,6 +409,17 @@ export interface Relation {
    *  **화면에서 가리는 것일 뿐 완전한 차단이 아니다** — 답변은 공개로 저장돼 있어 주소를 직접
    *  다루는 사람에게는 보일 수 있다. 설정 화면에도 그대로 적어 둔다. */
   qaHide?: boolean;
+  /* ---- 비공개(잠금) 자관 (relLock.ts 참조) ----
+     목록에는 그대로 보이지만 커버를 누르면 비밀번호를 물어본다. 서버 모드에서는 공개 문서(relations)에
+     커버·제목만 남기고 나머지 전부는 비공개 문서(rel_secrets)로 옮겨 저장한다 — 비밀번호를 통과한
+     요청에만 서버가 내준다. */
+  locked?: boolean;
+  /** 서버가 커버·제목만 준 상태 (내용을 아직 못 받음) — 저장되지 않는 화면용 표시 */
+  lockStub?: boolean;
+  /** 비밀번호 검증값 — 평문은 저장하지 않는다. 관리자·작성자 화면에만 실린다(비공개 문서에서 옴) */
+  lockHash?: string;
+  lockSalt?: string;
+  lockIter?: number;
 }
 
 export const CHAR_SEED: Character[] = [];

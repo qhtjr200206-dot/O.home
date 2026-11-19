@@ -12,6 +12,7 @@ import { CroppedBlobImg } from '@/components/ui/CropEditor';
 import { EditableDesc, PageTitle } from '@/components/ui/PageText';
 import { useMainStore } from '@/lib/mainStore';
 import { useCardSort, mergeOrder } from '@/lib/cardSort';
+import { needsUnlock } from '@/lib/relLock';
 
 export default function RelsPage() {
   const router = useRouter();
@@ -44,6 +45,9 @@ export default function RelsPage() {
         {visible.map((r, i) => {
           const memberLocked = r.visibility === 'member' && !user;
           const priv = r.visibility === 'private';
+          // 비공개(잠금) 자관 — 목록에는 그대로 두고 커버·제목만. 잠긴 동안은 캐치프레이즈·인원·
+          // 멤버 색을 그리지 않는다(서버 모드에서는 애초에 받지도 않는다). 열면 상세에서 비밀번호를 묻는다
+          const lockedStub = needsUnlock(r, isAdmin);
           const sp = sort(i) as { style?: React.CSSProperties };
           return (
             <div key={r.id} className="rel-card" {...sort(i)}
@@ -62,13 +66,15 @@ export default function RelsPage() {
                 <b>
                   {r.name}
                   {r.visibility === 'member' && <span className="pill" style={{ marginLeft: 6 }}>멤버</span>}
+                  {r.locked && <span className="pill" style={{ marginLeft: 6 }} aria-label="비밀번호 잠금">🔒</span>}
                 </b>
                 <span>
                   {priv ? '관리자에게만 표시됨'
                     : memberLocked ? '로그인 시 열람 가능'
+                    : lockedStub ? '비밀번호를 입력해야 볼 수 있습니다'
                     : `${r.catchphrase.replace(/ /g, '')} · ${r.members.length}인`}
                 </span>
-                {r.members.length > 0 && (
+                {!lockedStub && r.members.length > 0 && (
                   <div className="who">
                     {r.members.map(m => <i key={m.charId} style={{ background: colorOf(m.charId) }} />)}
                   </div>

@@ -258,6 +258,19 @@ export async function createSupabaseBackend(
       return sb.storage.from(BUCKET).getPublicUrl(path).data.publicUrl;
     },
 
+    /* 비공개(잠금) 자관 열기 — 비밀번호 확인은 DB 함수 unlock_relation()이 한다(security definer).
+       rel_secrets 행은 'private'라 RLS상 관리자·작성자만 직접 읽는다 (마이그레이션 rel_lock 참조) */
+    async unlockRel(id, password) {
+      const { data, error } = await sb.rpc('unlock_relation', { p_id: id, p_password: password });
+      if (error) {
+        const missing = error.code === 'PGRST202' || /unlock_relation/i.test(error.message);
+        return { ok: false, error: missing ? '서버에 잠금 자관 기능이 아직 설치되지 않았습니다 — 업데이트 SQL을 실행해 주세요' : error.message };
+      }
+      const r = (data ?? {}) as { error?: string; status?: number; rel?: ListItem; answers?: ListItem[] };
+      if (!r.rel) return { ok: false, error: r.error ?? '열지 못했습니다', status: r.status };
+      return { ok: true, rel: r.rel, answers: r.answers ?? [] };
+    },
+
     async listFiles() {
       const out: { ref: string; size: number }[] = [];
       const PAGE = 100;

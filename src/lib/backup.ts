@@ -32,7 +32,7 @@ export const RESET_CONTENT: ResetGroup[] = [
   { key: 'board', label: '게시판 글', keys: ['ohome.board.v1'] },
   { key: 'guest', label: '방명록', keys: ['ohome.guest.v1'] },
   { key: 'chars', label: '캐릭터', keys: ['ohome.chars.v1'] },
-  { key: 'rels', label: '자관', keys: ['ohome.rels.v1'] },
+  { key: 'rels', label: '자관', keys: ['ohome.rels.v1', 'ohome.relsecret.v1'] },
   { key: 'backup', label: '갤러리(그림 백업)', keys: ['ohome.backup.v1'] },
   { key: 'road', label: '로드뷰', keys: ['ohome.road.v1', 'ohome.roadnext.v1'] },
   // 본문은 목록과 분리 저장이라(v2.0) 같이 지워야 로그만 지워지고 본문이 유령처럼 남지 않는다
@@ -186,7 +186,11 @@ export async function resetGroups(selected: string[]): Promise<ResetReport> {
         try {
           const rows = await be.fetchList(coll);
           if (rows.length) { await be.syncList(coll, rows, [], null); report.rows += rows.length; }
-        } catch { report.failed.push(coll); }
+        } catch {
+          // 잠금 자관 내용은 업데이트 전 서버(규칙·SQL 미적용)에서 읽기가 거부된다 — 그때는
+          // 지울 것도 있을 수 없으므로(저장도 거부됨) 실패로 치지 않는다
+          if (coll !== 'rel_secrets') report.failed.push(coll);
+        }
       } else {
         try { await be.saveSetting(key, null); } catch { report.failed.push(key); }
       }

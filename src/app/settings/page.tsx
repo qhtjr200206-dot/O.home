@@ -1609,11 +1609,15 @@ function DataPane() {
   const [chars, setChars] = useLocalList<Character>('ohome.chars.v1', CHAR_SEED);
   const [rels] = useLocalList<Relation>('ohome.rels.v1', REL_SEED);
   const [charAsk, setCharAsk] = useState(false);
+  // 잠금 자관 중 내용을 못 받은 것(껍데기)이 있으면 멤버를 알 수 없다 — 그 자관의 캐릭터를
+  // 「어디에도 없는 캐릭터」로 잘못 골라 지우지 않게 정리 자체를 멈춘다
+  const relsUnknown = rels.some(r => r.lockStub);
   const orphanChars = useMemo(() => {
+    if (relsUnknown) return [];
     const used = new Set<string>();
     rels.forEach(r => r.members.forEach(m => used.add(m.charId)));
     return chars.filter(c => !c.own && !used.has(c.id));
-  }, [chars, rels]);
+  }, [chars, rels, relsUnknown]);
 
   const cleanChars = () => {
     const gone = new Set(orphanChars.map(c => c.id));
@@ -1770,7 +1774,8 @@ function DataPane() {
           <small>자관을 지워도 상대 캐릭터는 남습니다(실수로 지웠을 때를 위해) — 어느 자관에도 없는 캐릭터만 골라 지웁니다</small></div>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
           <span className="hint">
-            {orphanChars.length > 0 ? `${orphanChars.length}명` : '정리할 것 없음'}
+            {relsUnknown ? '잠금 자관 내용을 읽지 못해 확인할 수 없습니다'
+              : orphanChars.length > 0 ? `${orphanChars.length}명` : '정리할 것 없음'}
           </span>
           {orphanChars.length > 0 && (
             <button className="btn btn-accent" style={{ padding: '9px 18px' }}
@@ -2069,6 +2074,9 @@ function MenuPane() {
     try {
       let n = 0;
       for (const coll of CONTENT_COLLECTIONS) {
+        // 잠금 자관 내용은 늘 'private'로 저장된다 — 메뉴 기준으로 넓힐 일도 좁힐 일도 없다
+        // (업데이트 전 서버에서는 읽기 자체가 거부되므로 건너뛴다)
+        if (coll === 'rel_secrets') continue;
         const rows = await be.fetchList(coll);
         const targets = rows.filter(r => visFloorOf(coll, r) !== 'public');
         if (targets.length) n += await be.refreshVis(coll, targets, user?.id ?? null);

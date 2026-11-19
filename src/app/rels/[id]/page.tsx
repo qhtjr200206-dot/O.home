@@ -31,6 +31,8 @@ import { CroppedBlobImg, CropEditor, type CropValue } from '@/components/ui/Crop
 import { Lightbox } from '@/components/ui/Lightbox';
 import { useToast } from '@/components/ui/Toast';
 import { PageTitle } from '@/components/ui/PageText';
+import { RelLockGate } from '@/components/rels/RelLockGate';
+import { needsUnlock, notifyRelLockChanged } from '@/lib/relLock';
 
 /** 전신 이미지 — 비율 유지, 하단 정렬, 크기 %는 자관 수정 미리보기에서 지정 (v1.9) */
 // 전신 그림자는 「그림자 직접 지정」의 색·강도를 따른다 (v2.0 사용자 요청) — 자관명 그림자와 같은 설정
@@ -238,10 +240,12 @@ function EmptyCard({ isAdmin, onAdd }: { isAdmin: boolean; onAdd: () => void }) 
 export default function RelDetailPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
-  const { user, isAdmin } = useAuth();
+  const { user, isAdmin, ready: authReady } = useAuth();
   const toast = useToast();
   const { familyOf } = useFonts();
   const [rels, setRels, loaded] = useLocalList<Relation>('ohome.rels.v1', REL_SEED);
+  // 비공개(잠금) 자관을 이 탭에서 열었을 때 다시 그리기 (브라우저 저장 모드는 목록 재조회가 없다)
+  const [, setLockTick] = useState(0);
   const [chars, setChars, charsLoaded] = useLocalList<Character>('ohome.chars.v1', CHAR_SEED);
   const [logs] = useLocalList<TrpgLog>('ohome.trpg.v1', TRPG_SEED);
   const [rooms] = useLocalList<RpRoom>('ohome.rp.v1', RP_SEED);
@@ -360,6 +364,15 @@ export default function RelDetailPage() {
 
   // 별명 주소로도 열린다 (v2.0 사용자 요청 — 주소를 나중에 바꿔도 옛 주소가 살아 있게)
   const rel = findByKey(rels, id);
+
+  /* 잠금 자관 — 새로고침 직후엔 로그인 복원 전에 목록을 받아 관리자·작성자에게도 껍데기만 와 있을 수
+     있다. 로그인이 확인되면 한 번 더 읽어 내용을 채운다 (방문자는 여전히 껍데기 → 비밀번호 화면) */
+  const stubNow = !!rel?.lockStub;
+  useEffect(() => {
+    if (!stubNow || !user?.id) return;
+    const t = setTimeout(notifyRelLockChanged, 0);
+    return () => clearTimeout(t);
+  }, [stubNow, user?.id]);
 
   // 자관별 페이지 테마 (4.18 방식) — 별도 테마컬러면 홈 전체 팔레트를 임시 전환, 벗어나면 원복.
   // AU별 (v1.9): AU에 테마를 지정했으면 그것, 미지정이면 base(원본) 테마 따라가기
@@ -497,6 +510,12 @@ export default function RelDetailPage() {
         <div className="page-head"><PageTitle>RELATIONS</PageTitle><p>자관을 찾을 수 없거나 열람 권한이 없습니다</p></div>
       </section>
     );
+  }
+  /* 비공개(잠금) 자관 — 비밀번호를 통과하기 전에는 커버·제목만 (relLock.ts).
+     로그인 확인 전에는 관리자에게 비밀번호 화면이 번쩍이지 않게 빈 화면으로 기다린다 */
+  if (rel.locked && !authReady) return <section className="page" />;
+  if (needsUnlock(rel, isAdmin)) {
+    return <RelLockGate rel={rel} onUnlocked={() => setLockTick(t => t + 1)} />;
   }
 
   const updateRel = (patch: Partial<Relation>) =>
@@ -682,6 +701,8 @@ export default function RelDetailPage() {
     setQaRows([...qaRows, {
       id: newId(), relId: rel.id, auId: au?.id ?? 'base', no: curQa.no,
       charId: cid, text, authorId: user?.id, date: new Date().toISOString(),
+      // 잠금 자관의 답변은 비공개로 — 비밀번호를 통과한 요청에만 서버가 내준다 (relLock.ts)
+      ...(rel.locked ? { visibility: 'private' as const } : {}),
     }]);
     setQaText('');
   };
