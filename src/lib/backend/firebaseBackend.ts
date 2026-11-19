@@ -428,6 +428,10 @@ export async function createFirebaseBackend(cfg: FirebaseCfg): Promise<Backend> 
       }
     },
 
+    async authToken() {
+      return (await auth.currentUser?.getIdToken().catch(() => undefined)) ?? null;
+    },
+
     async listFiles() {
       // 저장하는 주소가 다운로드 URL이므로 목록도 같은 형태로 돌려줘야 대조가 된다
       const res = await stMod.listAll(stMod.ref(storage, 'ohome'));

@@ -271,6 +271,11 @@ export async function createSupabaseBackend(
       return { ok: true, rel: r.rel, answers: r.answers ?? [] };
     },
 
+    async authToken() {
+      const { data } = await sb.auth.getSession();
+      return data.session?.access_token ?? null;
+    },
+
     async listFiles() {
       const out: { ref: string; size: number }[] = [];
       const PAGE = 100;

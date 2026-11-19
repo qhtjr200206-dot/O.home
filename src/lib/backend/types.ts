@@ -88,6 +88,9 @@ export interface Backend {
    *  Firebase: /api/rels/unlock(Admin SDK) · Supabase: unlock_relation() RPC(security definer).
    *  비공개 문서(rel_secrets)는 보안 규칙상 관리자·작성자만 직접 읽을 수 있다. */
   unlockRel?(id: string, password: string): Promise<RelUnlockResult>;
+  /** 지금 로그인한 사용자의 인증 토큰 (Firebase ID 토큰 / Supabase access token) — 우리 서버 API가
+   *  「누가 요청했는지」 확인할 때 Authorization 헤더로 보낸다 (예: 오늘의 시 다시 뽑기). 로그아웃 상태면 null */
+  authToken?(): Promise<string | null>;
   /** 저장소에 있는 파일 전부 — 어디서도 참조하지 않는 파일을 찾아 지우는 데 쓴다.
    *  글을 지워도 이미지는 저장소에 남기 때문에(참조가 다른 곳에 남아 있을 수 있어 자동 삭제는 위험)
    *  관리자가 환경설정에서 직접 확인하고 정리한다. */
