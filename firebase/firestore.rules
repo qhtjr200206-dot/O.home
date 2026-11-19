@@ -46,14 +46,25 @@ service cloud.firestore {
     }
     function safeCharacterWrite(coll) {
       return coll != 'characters' || !characterLocked(request.resource.data.data)
-        || (isAdmin() && request.resource.data.data.keys().hasOnly([
+        || (isAdmin() && request.resource.data.editorIds is list
+          && request.resource.data.editorIds.size() == 0
+          && request.resource.data.keys().hasOnly(['data', 'authorId', 'visibility', 'sort', 'editorIds', 'updatedAt'])
+          && request.resource.data.data.keys().hasOnly([
           'id', 'name', 'own', 'visibility', 'slug', 'secId', 'thumbId',
-          'thumbCrop', 'thumbClass', 'locked', 'lockStub'
+          'thumbCrop', 'thumbClass', 'locked', 'lockStub', 'lockVersion'
         ]));
     }
+    function safeCharacterCreate(coll) {
+      return coll != 'characters' || !characterLocked(request.resource.data.data);
+    }
+    function safeCharacterDelete(coll) {
+      return coll != 'characters' || !characterLocked(resource.data.data);
+    }
     function safeCharacterUpdate(coll) {
-      return coll != 'characters' || !characterLocked(resource.data.data)
-        || characterLocked(request.resource.data.data);
+      return coll != 'characters'
+        || (!characterLocked(resource.data.data) && !characterLocked(request.resource.data.data))
+        || (characterLocked(resource.data.data) && characterLocked(request.resource.data.data)
+          && request.resource.data.data.lockVersion == resource.data.data.lockVersion);
     }
 
     // ── 소유자(관리자) 지정 — 아직 없을 때 딱 한 번 ──────────────
@@ -92,10 +103,10 @@ service cloud.firestore {
       );
 
       // 쓰기: 로그인 회원 — 방명록만 비로그인 방문자도 남길 수 있음(닉네임+비밀번호 방식)
-      allow create: if isContent(coll) && safeCharacterWrite(coll) && (signedIn() || coll == 'guestbook');
+      allow create: if isContent(coll) && safeCharacterCreate(coll) && safeCharacterWrite(coll) && (signedIn() || coll == 'guestbook');
 
       // 삭제는 별도 — request.resource가 없는 delete에서 접근하지 않는다.
-      allow delete: if isContent(coll) && signedIn()
+      allow delete: if isContent(coll) && safeCharacterDelete(coll) && signedIn()
         && (resource.data.authorId == request.auth.uid || isAdmin());
       allow update: if isContent(coll) && safeCharacterWrite(coll) && safeCharacterUpdate(coll)
         && signedIn()

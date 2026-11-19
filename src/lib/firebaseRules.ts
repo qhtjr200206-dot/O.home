@@ -52,14 +52,25 @@ service cloud.firestore {
     }
     function safeCharacterWrite(coll) {
       return coll != 'characters' || !characterLocked(request.resource.data.data)
-        || (isAdmin() && request.resource.data.data.keys().hasOnly([
+        || (isAdmin() && request.resource.data.editorIds is list
+          && request.resource.data.editorIds.size() == 0
+          && request.resource.data.keys().hasOnly(['data', 'authorId', 'visibility', 'sort', 'editorIds', 'updatedAt'])
+          && request.resource.data.data.keys().hasOnly([
           'id', 'name', 'own', 'visibility', 'slug', 'secId', 'thumbId',
-          'thumbCrop', 'thumbClass', 'locked', 'lockStub'
+          'thumbCrop', 'thumbClass', 'locked', 'lockStub', 'lockVersion'
         ]));
     }
+    function safeCharacterCreate(coll) {
+      return coll != 'characters' || !characterLocked(request.resource.data.data);
+    }
+    function safeCharacterDelete(coll) {
+      return coll != 'characters' || !characterLocked(resource.data.data);
+    }
     function safeCharacterUpdate(coll) {
-      return coll != 'characters' || !characterLocked(resource.data.data)
-        || characterLocked(request.resource.data.data);
+      return coll != 'characters'
+        || (!characterLocked(resource.data.data) && !characterLocked(request.resource.data.data))
+        || (characterLocked(resource.data.data) && characterLocked(request.resource.data.data)
+          && request.resource.data.data.lockVersion == resource.data.data.lockVersion);
     }
 
     // ── 소유자(관리자) 지정 — 아직 없을 때 딱 한 번 ──────────────
@@ -100,7 +111,7 @@ service cloud.firestore {
       // 쓰기: 로그인 회원 — 방명록·댓글은 비로그인 방문자도 남길 수 있음(닉네임+비밀번호 방식)
       // notifications: 손님 댓글·방명록이 관리자에게 알림을 남길 수 있어야 한다 (v2.0) —
       // 행 주인(authorId)은 받는 사람이라 읽기·수정·삭제는 받는 사람·관리자만 (아래 공통 규칙)
-      allow create: if isContent(coll) && safeCharacterWrite(coll) && (signedIn() || coll in ['guestbook', 'comments', 'notifications']);
+      allow create: if isContent(coll) && safeCharacterCreate(coll) && safeCharacterWrite(coll) && (signedIn() || coll in ['guestbook', 'comments', 'notifications']);
 
       // 수정·삭제: 작성자 본인 · 편집 권한을 받은 회원 · 관리자
       // 댓글은 글과 따로 저장되므로(v2.0) 댓글을 달 때 글을 수정할 필요가 없다 —
@@ -115,7 +126,7 @@ service cloud.firestore {
             || isAdmin()
             || (resource.data.keys().hasAny(['editorIds'])
                 && request.auth.uid in resource.data.editorIds));
-      allow delete: if isContent(coll)
+      allow delete: if isContent(coll) && safeCharacterDelete(coll)
         && signedIn()
         && (resource.data.authorId == request.auth.uid
             || isAdmin()
