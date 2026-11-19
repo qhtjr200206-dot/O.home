@@ -816,7 +816,7 @@ function ToneControls({ settings, set, chips, compact }: {
                 onClick={() => set('bgColor', c)} />
             ))}
           </div>
-          <p className={css.hint}>글자색·보조색은 배경 밝기에 맞춰 자동 조정됩니다. 「전체 배경」에서는 사진 위에 색을 덮으며 사진에 따라 대비가 달라질 수 있습니다.</p>
+          <p className={css.hint}>글자색·보조색은 배경 밝기에 맞춰 자동 조정됩니다. 「전체 배경」에서 색을 고르거나 라이트 톤을 선택하면 선명한 사진에도 색이 옅게 덮이며, 사진에 따라 대비가 달라질 수 있습니다.</p>
         </>
       )}
     </>

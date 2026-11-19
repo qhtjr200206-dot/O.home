@@ -151,6 +151,41 @@ export function ensureContrast(fg: string, bg: string, min: number): string {
   return mix(fg, toward, hi);
 }
 
+/** 라이트 톤 테마 바탕의 최소 상대 휘도 (≈ L* 91) — 이보다 어두우면 「라이트 모드가 밝지 않다」 */
+export const LIGHT_SURFACE_MIN_LUM = 0.78;
+/** 다크 톤 테마 바탕의 최대 상대 휘도 */
+export const DARK_SURFACE_MAX_LUM = 0.035;
+/** 테마 바탕에 포인트색이 밸 수 있는 최대 채도 (HSL S). 넘으면 포인트색이 배경 전체를 물들인다 */
+const SURFACE_MAX_SAT: Record<Tone, number> = { light: 0.42, dark: 0.38 };
+
+/**
+ * 테마 기본 바탕 보정 (배경색을 직접 고른 경우엔 쓰지 않는다).
+ * - 채도 상한: 포인트색 틴트가 바탕 전체를 진하게 물들이지 않게
+ * - 명도: 라이트는 충분히 밝게(최소 휘도), 다크는 충분히 어둡게
+ */
+export function guardSurface(bg: string, tone: Tone): string {
+  if (!/^#[0-9a-f]{6}$/i.test(bg)) return bg;
+  const [h, s, l] = rgbToHsl(hexToRgb(bg));
+  let out = s > SURFACE_MAX_SAT[tone] ? rgbToHex(hslToRgb(h, SURFACE_MAX_SAT[tone], l)) : bg.toLowerCase();
+  if (tone === 'light') {
+    if (luminance(out) < LIGHT_SURFACE_MIN_LUM) {
+      let lo = 0, hi = 1;
+      for (let i = 0; i < 14; i++) { const m = (lo + hi) / 2; if (luminance(mix(out, '#ffffff', m)) >= LIGHT_SURFACE_MIN_LUM) hi = m; else lo = m; }
+      out = mix(out, '#ffffff', hi);
+    }
+  } else if (luminance(out) > DARK_SURFACE_MAX_LUM) {
+    let lo = 0, hi = 1;
+    for (let i = 0; i < 14; i++) { const m = (lo + hi) / 2; if (luminance(mix(out, '#000000', m)) <= DARK_SURFACE_MAX_LUM) hi = m; else lo = m; }
+    out = mix(out, '#000000', hi);
+  }
+  return out;
+}
+
+/** 바탕 위에 깔리는 포인트색 번짐(그라데이션·빛)의 불투명도 상한 — 톤별로 */
+export function accentWash(tone: Tone, a: number): number {
+  return Math.max(0, Math.min(a, tone === 'light' ? 0.12 : 0.3));
+}
+
 /** 바탕색 하나로 톤 판정 — 흰 글자와 검은 글자 중 대비가 큰 쪽 */
 export function toneOf(bg: string): Tone {
   return contrast(bg, '#ffffff') >= contrast(bg, '#000000') ? 'dark' : 'light';

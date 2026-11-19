@@ -15,7 +15,7 @@ export const RATIO_SIZE: Record<Ratio, [number, number]> = {
   '16:9': [1920, 1080],
 };
 
-export type ThemeId = 'vinyl' | 'minimal' | 'film' | 'cassette' | 'player' | 'polaroid' | 'neon' | 'magazine';
+export type ThemeId = 'vinyl' | 'minimal' | 'film' | 'cassette' | 'player' | 'polaroid' | 'neon' | 'magazine' | 'youtube' | 'clean' | 'half';
 export type FontId = 'basic' | 'cute' | 'hand' | 'sf' | 'oriental' | 'retro';
 /** 오디오 반응 비주얼라이저 — none 포함 5가지 */
 export type VisualizerId = 'none' | 'bars' | 'wave' | 'radial' | 'dots';
@@ -105,7 +105,7 @@ export function normalizeSettings(raw: unknown): CoverSettings {
   const str = (max: number) => (v: unknown) => typeof v === 'string' && v.length <= max;
   return {
     v: 1,
-    theme: pick('theme', inList(['vinyl', 'minimal', 'film', 'cassette', 'player', 'polaroid', 'neon', 'magazine'])),
+    theme: pick('theme', inList(['vinyl', 'minimal', 'film', 'cassette', 'player', 'polaroid', 'neon', 'magazine', 'youtube', 'clean', 'half'])),
     ratio: pick('ratio', inList(Object.keys(RATIO_SIZE))),
     font: pick('font', inList(['basic', 'cute', 'hand', 'sf', 'oriental', 'retro'])),
     accent: pick('accent', v => typeof v === 'string' && /^#[0-9a-f]{6}$/i.test(v)),

@@ -30,7 +30,7 @@ function reel(ctx: CanvasRenderingContext2D, f: FrameState, cx: number, cy: numb
   ctx.restore();
 }
 
-function drawCassette(ctx: CanvasRenderingContext2D, f: FrameState, kit: RenderKit, x: number, y: number, w: number) {
+function drawCassette(ctx: CanvasRenderingContext2D, f: FrameState, kit: RenderKit, x: number, y: number, w: number, labelPhoto = true) {
   const u = f.u, s = f.settings;
   const h = w * 0.63;
   const k = w / 1000;   // 카세트 내부 좌표 1000 기준
@@ -59,12 +59,12 @@ function drawCassette(ctx: CanvasRenderingContext2D, f: FrameState, kit: RenderK
   // 위쪽 색 띠 (포인트색) + 사진 띠
   ctx.fillStyle = f.palette.accent; ctx.fillRect(lx, ly, lw, 70 * k);
   ctx.fillStyle = alpha(f.palette.accentDeep, 0.85); ctx.fillRect(lx, ly + 70 * k, lw, 8 * k);
-  if (s.photoLayout === 'cover') kit.drawPhoto(ctx, { x: lx + lw - 210 * k, y: ly + 100 * k, w: 180 * k, h: 180 * k }, { radius: 8 * k });
+  if (labelPhoto && s.photoLayout === 'cover') kit.drawPhoto(ctx, { x: lx + lw - 210 * k, y: ly + 100 * k, w: 180 * k, h: 180 * k }, { radius: 8 * k });
   ctx.restore();
   // 라벨 글자
   text(ctx, kit, 'A', lx + 26 * k, ly + 52 * k, { font: kit.font(46 * k, 900, kit.mono), color: f.palette.onAccent });
   text(ctx, kit, 'C-60 · TYPE I NORMAL', lx + lw - 24 * k, ly + 46 * k, { font: kit.font(22 * k, 700, kit.mono), color: f.palette.onAccent, align: 'right', spacing: 2 * k });
-  const tw = s.photoLayout === 'cover' ? lw - 290 * k : lw - 70 * k;
+  const tw = labelPhoto && s.photoLayout === 'cover' ? lw - 290 * k : lw - 70 * k;
   // 줄 노트 선
   ctx.strokeStyle = 'rgba(40,60,120,0.18)'; ctx.lineWidth = 2 * k;
   for (const yy of [190, 260]) { ctx.beginPath(); ctx.moveTo(lx + 36 * k, ly + yy * k); ctx.lineTo(lx + 36 * k + tw, ly + yy * k); ctx.stroke(); }
@@ -96,6 +96,24 @@ function drawCassette(ctx: CanvasRenderingContext2D, f: FrameState, kit: RenderK
   ctx.fillStyle = mix(shell, '#000000', 0.25); ctx.fill();
   for (const hx of [330, 500, 670]) { ctx.beginPath(); ctx.arc(x + hx * k, y + 560 * k, 16 * k, 0, Math.PI * 2); ctx.fillStyle = '#0a0a0b'; ctx.fill(); }
   return h;
+}
+
+/** 케이스 속지(J카드) — 커버 사진을 크게, 아래 등(스파인)에 제목 */
+function jcard(ctx: CanvasRenderingContext2D, f: FrameState, kit: RenderKit, x: number, y: number, w: number) {
+  const u = f.u;
+  const spine = w * 0.16;
+  const dark = f.palette.tone === 'dark';
+  withShadow(ctx, 40 * u, 18 * u, dark ? 'rgba(0,0,0,0.6)' : 'rgba(40,30,20,0.3)', () => {
+    ctx.fillStyle = '#f3ecdc'; ctx.fillRect(x, y, w, w + spine);
+  });
+  kit.drawPhoto(ctx, { x, y, w, h: w });
+  // 등(스파인) — 종이 + 포인트색 띠 + 제목
+  paper(ctx, f, { x, y: y + w, w, h: spine }, '#f3ecdc', 0.3);
+  ctx.fillStyle = f.palette.accent; ctx.fillRect(x, y + w, w * 0.07, spine);
+  ctx.fillStyle = 'rgba(0,0,0,0.18)'; ctx.fillRect(x, y + w, w, 2 * u);
+  text(ctx, kit, titleOf(f), x + w * 0.1, y + w + spine * 0.46, { font: kit.font(spine * 0.3, 700), color: '#1d2a4a', maxW: w * 0.84 });
+  text(ctx, kit, artistOf(f), x + w * 0.1, y + w + spine * 0.8, { font: kit.font(spine * 0.2, 500), color: '#33415e', maxW: w * 0.84 });
+  return w + spine;
 }
 
 export const cassette: ThemeDef = {
@@ -132,7 +150,27 @@ export const cassette: ThemeDef = {
     const ink = nat ? (bgPhoto ? '#fbf7ef' : '#1f1d1a') : p.ink;
     const sub = nat ? (bgPhoto ? 'rgba(251,247,239,0.7)' : 'rgba(31,29,26,0.62)') : p.inkSoft;
     let cw: number, cx: number, cy: number, lx: number, ly: number, lw: number, lh: number;
-    if (shape === 'land') {
+    // 커버형: 케이스 속지(J카드)에 사진을 크게 + 옆/아래 카세트. 전체 배경형은 사진이 이미 크니 카세트만 크게.
+    let card: { x: number; y: number; w: number } | null = null;
+    if (s.photoLayout === 'cover') {
+      if (shape === 'land') {
+        const jw = Math.min((H - pad * 2.6) / 1.16, W * 0.42);
+        card = { x: pad * 1.3, y: (H - jw * 1.16) / 2, w: jw };
+        cx = card.x + jw + pad * 0.9; cw = W - cx - pad * 1.3; cw = Math.min(cw, (H * 0.42) / 0.63); cy = pad * 1.2;
+        lx = cx; lw = W - lx - pad * 1.2; ly = cy + cw * 0.63 + 50 * u; lh = H - ly - pad * 2.2;
+      } else if (shape === 'square') {
+        const jw = 440 * u;
+        card = { x: pad, y: pad * 1.1, w: jw };
+        cx = pad + jw + 50 * u; cw = W - cx - pad; cy = card.y + (jw * 1.16 - cw * 0.63) / 2;
+        lx = pad * 1.3; lw = W - pad * 2.6; ly = card.y + jw * 1.16 + 40 * u; lh = H - ly - pad * 1.6;
+      } else {
+        const jw = Math.min(W - pad * 3, H * 0.36);
+        card = { x: (W - jw) / 2, y: H / W > 1.5 ? H * 0.08 : pad * 1.1, w: jw };
+        // 카세트는 속지 등(스파인) 위에 겹쳐 앞에 놓인다 (사진은 가리지 않음)
+        cw = Math.min(W - pad * 2.4, jw * 1.1); cx = (W - cw) / 2; cy = card.y + jw * 1.02;
+        lx = pad * 1.2; lw = W - pad * 2.4; ly = cy + cw * 0.63 + 50 * u; lh = H - ly - pad * 2.4;
+      }
+    } else if (shape === 'land') {
       cw = W * 0.5; cx = pad * 1.3; cy = (H - cw * 0.63) / 2 - 20 * u;
       lx = cx + cw + pad * 1.2; lw = W - lx - pad * 1.2; ly = pad * 1.8; lh = H - ly - pad * 2.2;
     } else if (shape === 'square') {
@@ -142,16 +180,23 @@ export const cassette: ThemeDef = {
       cw = W - pad * 2; cx = pad; cy = H / W > 1.5 ? H * 0.17 : H * 0.12;
       lx = pad * 1.2; lw = W - pad * 2.4; ly = cy + cw * 0.63 + 120 * u; lh = H - ly - pad * 2.4;
     }
+    if (card) {
+      ctx.save();
+      const ch0 = card.w * 1.16;
+      ctx.translate(card.x + card.w / 2, card.y + ch0 / 2); ctx.rotate(0.018); ctx.translate(-(card.x + card.w / 2), -(card.y + ch0 / 2));
+      jcard(ctx, f, kit, card.x, card.y, card.w);
+      ctx.restore();
+    }
     // 살짝 기운 카세트
     ctx.save();
     const ch = cw * 0.63;
     ctx.translate(cx + cw / 2, cy + ch / 2); ctx.rotate(-0.025); ctx.translate(-(cx + cw / 2), -(cy + ch / 2));
-    drawCassette(ctx, f, kit, cx, cy, cw);
+    drawCassette(ctx, f, kit, cx, cy, cw, !card);
     ctx.restore();
     grain(ctx, f, 0.05, 0);
     // 문구 — 카세트 위 메모
     if (s.phrase) {
-      const py = shape === 'tall' ? cy - 50 * u : shape === 'land' ? ly - 30 * u : H - pad * 0.6;
+      const py = shape === 'tall' ? (card ? card.y - 26 * u : cy - 50 * u) : shape === 'land' ? ly - 30 * u : H - pad * 0.6;
       text(ctx, kit, s.phrase, shape === 'land' ? lx : W / 2, py, { font: kit.font(30 * u, 500), color: sub, align: shape === 'land' ? 'left' : 'center', maxW: shape === 'land' ? lw : W - pad * 2 });
     }
     kit.drawLyrics(ctx, { x: lx, y: ly, w: lw, h: lh }, { align: shape === 'land' ? 'left' : 'center', size: (shape === 'tall' ? 58 : 46) * u, color: ink, dimColor: nat ? sub : ink, weight: 700, lineHeight: 1.45 });

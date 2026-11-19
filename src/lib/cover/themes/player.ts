@@ -1,11 +1,11 @@
 // 뮤직 플레이어 — 휴대용 플레이어 본체, 작은 화면 속 커버·진행 막대, 클릭 휠.
 import type { AccentPalette, FrameState, RenderKit, ThemeDef, Tone } from '../types';
-import { alpha, mix } from '../color';
+import { accentWash, alpha, mix } from '../color';
 import { shapeOf, titleOf, artistOf, text, rr, photoBackdrop, withShadow, grain, vignette, isNative, surfaceOf } from './_paint';
 
 /** 톤별 바탕 — 라이트: 포인트색 스튜디오 배경 / 다크: 불 낮춘 어두운 스튜디오 */
 const studioBg = (tone: Tone, p: AccentPalette) =>
-  tone === 'dark' ? mix(p.accentDeep, '#0f0f13', 0.62) : mix(p.accent, '#ffffff', 0.55);
+  tone === 'dark' ? mix(p.accentDeep, '#0f0f13', 0.62) : mix(p.accentSoft, '#f5f5f7', 0.6);
 
 /** 플레이어 본체·화면 색 — 라이트: 은색 본체 + 밝은 화면 / 다크: 블랙 본체 + 다크 UI */
 const DEVICE = {
@@ -142,25 +142,78 @@ export const player: ThemeDef = {
       g.addColorStop(0, mix(p.bg, '#ffffff', light ? 0.25 : 0.08));
       g.addColorStop(1, mix(p.bg, '#000000', light ? 0.08 : 0.3));
     } else if (light) {
-      g.addColorStop(0, mix(p.accent, '#ffffff', 0.55));
-      g.addColorStop(1, mix(p.accent, '#1a1a22', 0.35));
+      // 밝은 스튜디오 — 아주 옅은 포인트색 틴트 바탕 (예전엔 포인트색 55%가 깔려 라이트인데도 어둡고 진했다)
+      const base = surfaceOf(f, studioBg);
+      g.addColorStop(0, mix(base, '#ffffff', 0.5));
+      g.addColorStop(1, mix(base, '#000000', 0.05));
     } else {
       // 어두운 스튜디오 — 포인트색이 밴 먹색이 오른쪽 아래로 더 가라앉는다
-      g.addColorStop(0, mix(p.accent, '#1a1a20', 0.72));
+      g.addColorStop(0, mix(p.accent, '#1a1a20', 0.8));
       g.addColorStop(1, mix(p.accentDeep, '#050507', 0.7));
     }
     ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
     // 바닥 스튜디오 조명 원
     const r = ctx.createRadialGradient(W / 2, H * 0.4, 0, W / 2, H * 0.4, Math.max(W, H) * 0.7);
-    r.addColorStop(0, light ? 'rgba(255,255,255,0.35)' : alpha(p.accent, 0.16)); r.addColorStop(1, 'rgba(255,255,255,0)');
+    r.addColorStop(0, light ? 'rgba(255,255,255,0.35)' : alpha(p.accent, accentWash('dark', 0.16))); r.addColorStop(1, 'rgba(255,255,255,0)');
     ctx.fillStyle = r; ctx.fillRect(0, 0, W, H);
-    vignette(ctx, f, light ? 0.35 : 0.55);
+    vignette(ctx, f, light ? 0.12 : 0.55);
     grain(ctx, f, 0.04, 0);
   },
   foreground(ctx, f, kit) {
     const u = f.u, W = f.width, H = f.height, s = f.settings;
     const shape = shapeOf(f);
     const pad = 70 * u;
+    const p = f.palette;
+    const nat = isNative(f, 'light');
+    const bgPhoto = s.photoLayout === 'background';
+    // 원래 모습: 스튜디오 배경 위 먹색 / 사진 배경 위 흰색. 그 밖엔 팔레트
+    const ink = nat ? (bgPhoto ? '#ffffff' : '#141418') : p.ink;
+    const sub = nat ? (bgPhoto ? 'rgba(255,255,255,0.7)' : alpha('#141418', 0.55)) : p.inkSoft;
+    const acc = nat ? p.accent : p.accentInk;
+    if (!bgPhoto) {
+      // 커버형 — 앨범 아트를 크게 세워 두고 그 앞에 플레이어 (기기 화면 속 커버만으로는 사진이 너무 작다)
+      let art: { x: number; y: number; s: number }, dw: number, dx: number, dy: number;
+      let lr: { x: number; y: number; w: number; h: number };
+      if (shape === 'land') {
+        dw = ((H - pad * 2) / 1.66) * 0.9; dx = pad * 1.6; dy = (H - dw * 1.66) / 2;
+        const as = Math.min(H - pad * 3.4, W * 0.38);
+        art = { x: dx + dw + 60 * u, y: (H - as) / 2, s: as };
+        const lx = art.x + as + 60 * u;
+        lr = { x: lx, y: art.y + 190 * u, w: W - lx - pad, h: art.s - 190 * u };
+      } else if (shape === 'square') {
+        const as = 600 * u;
+        art = { x: W - pad - as, y: pad, s: as };
+        dw = 400 * u; dx = pad; dy = H - pad * 0.6 - dw * 1.66;
+        const lx = dx + dw + 44 * u;
+        lr = { x: lx, y: art.y + as + 44 * u, w: W - pad - lx, h: H - pad - (art.y + as + 44 * u) };
+      } else {
+        // 4:5는 오른쪽 위, 9:16처럼 긴 화면은 가로폭을 꽉 채운다
+        const as = H / W > 1.5 ? W - pad * 2 : Math.min(W - pad * 2, H * 0.5) * 0.82;
+        art = { x: W - pad - as, y: H / W > 1.5 ? pad * 1.4 : pad, s: as };
+        dw = W * 0.36; dx = pad; dy = H - pad - dw * 1.66;
+        const lx = dx + dw + 44 * u;
+        lr = { x: lx, y: art.y + as + 44 * u, w: W - pad - lx, h: H - pad - (art.y + as + 44 * u) };
+      }
+      withShadow(ctx, 70 * u, 30 * u, p.tone === 'light' ? alpha(p.shadow, 0.3) : 'rgba(0,0,0,0.6)', () => {
+        ctx.fillStyle = '#111'; ctx.fillRect(art.x, art.y, art.s, art.s);
+      });
+      kit.drawPhoto(ctx, { x: art.x, y: art.y, w: art.s, h: art.s });
+      device(ctx, f, kit, dx, dy, dw);
+      // 제목 묶음 — 기기 위(왼쪽 칸) 또는 가로형은 가사 칸 위
+      const land = shape === 'land';
+      const tx = land ? lr.x : dx;
+      const tBottom = land ? art.y + 150 * u : dy - 36 * u;
+      const tw = land ? lr.w : (tBottom - 150 * u < art.y + art.s ? art.x - dx - 36 * u : dw);
+      if (tw > 120 * u) {
+        text(ctx, kit, 'NOW PLAYING', tx, tBottom - 104 * u, { font: kit.font(17 * u, 700, kit.mono), color: acc, spacing: 3 * u, maxW: tw });
+        text(ctx, kit, titleOf(f), tx, tBottom - 48 * u, { font: kit.font(46 * u, 800), color: ink, maxW: tw });
+        text(ctx, kit, artistOf(f), tx, tBottom - 6 * u, { font: kit.font(26 * u, 500), color: sub, maxW: tw });
+      }
+      let ly = lr.y, lh = lr.h;
+      if (s.phrase) { text(ctx, kit, s.phrase, lr.x, ly + 26 * u, { font: kit.font(24 * u, 600), color: sub, maxW: lr.w }); ly += 54 * u; lh -= 54 * u; }
+      kit.drawLyrics(ctx, { x: lr.x, y: ly, w: lr.w, h: lh }, { align: 'left', size: (shape === 'square' ? 38 : 44) * u, color: ink, dimColor: nat ? sub : ink, weight: 800, lineHeight: 1.4 });
+      return;
+    }
     let dw: number, dx: number, dy: number;
     let lr: { x: number; y: number; w: number; h: number };
     let align: 'left' | 'center' = 'left';
@@ -174,12 +227,6 @@ export const player: ThemeDef = {
       lr = { x: lx, y: pad * 2, w: W - lx - pad, h: H - pad * 4 };
     }
     device(ctx, f, kit, dx, dy, dw);
-    const p = f.palette;
-    const nat = isNative(f, 'light');
-    const bgPhoto = s.photoLayout === 'background';
-    // 원래 모습: 스튜디오 배경 위 먹색 / 사진 배경 위 흰색. 그 밖엔 팔레트
-    const ink = nat ? (bgPhoto ? '#ffffff' : '#141418') : p.ink;
-    const sub = nat ? (bgPhoto ? 'rgba(255,255,255,0.7)' : alpha('#141418', 0.55)) : p.inkSoft;
     if (shape !== 'tall' && s.phrase) text(ctx, kit, s.phrase, lr.x, pad * 1.4, { font: kit.font(26 * u, 600), color: sub, maxW: lr.w });
     kit.drawLyrics(ctx, lr, { align, size: (shape === 'square' ? 40 : 48) * u, color: ink, dimColor: nat ? sub : ink, weight: 800, lineHeight: 1.4 });
   },

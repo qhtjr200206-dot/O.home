@@ -1,6 +1,6 @@
 // 심플 — 음악 앱의 「지금 재생 중」 화면. 큰 커버, 정돈된 글자, 얇은 진행 막대.
 import type { AccentPalette, ThemeDef, Tone } from '../types';
-import { alpha, mix } from '../color';
+import { accentWash, alpha, mix } from '../color';
 import { shapeOf, titleOf, artistOf, text, progressBar, transport, withShadow, rr, photoBackdrop, grain, isNative, surfaceOf } from './_paint';
 
 /** 톤별 바탕 — 다크: 포인트색이 밴 먹색 / 라이트: 음악 앱 라이트 모드의 거의 흰 바탕 */
@@ -24,8 +24,8 @@ export const minimal: ThemeDef = {
       ctx.fillStyle = surfaceOf(f, appBg);
       ctx.fillRect(0, 0, W, H);
       const g = ctx.createLinearGradient(0, 0, 0, H);
-      g.addColorStop(0, alpha(p.accent, 0.55));
-      g.addColorStop(0.55, alpha(p.accent, 0.08));
+      g.addColorStop(0, alpha(p.accent, accentWash('dark', 0.55)));
+      g.addColorStop(0.55, alpha(p.accent, 0.06));
       g.addColorStop(1, 'rgba(0,0,0,0.35)');
       ctx.fillStyle = g;
       ctx.fillRect(0, 0, W, H);
@@ -34,13 +34,13 @@ export const minimal: ThemeDef = {
       ctx.fillStyle = surfaceOf(f, appBg);
       ctx.fillRect(0, 0, W, H);
       const g = ctx.createLinearGradient(0, 0, 0, H);
-      g.addColorStop(0, alpha(p.accent, 0.24));
-      g.addColorStop(0.5, alpha(p.accent, 0.04));
+      g.addColorStop(0, alpha(p.accent, accentWash('light', 0.24)));
+      g.addColorStop(0.5, alpha(p.accent, 0.03));
       g.addColorStop(1, 'rgba(255,255,255,0)');
       ctx.fillStyle = g;
       ctx.fillRect(0, 0, W, H);
       const r = ctx.createRadialGradient(W * 0.85, H * 0.08, 0, W * 0.85, H * 0.08, Math.max(W, H) * 0.55);
-      r.addColorStop(0, alpha(p.accent, 0.16));
+      r.addColorStop(0, alpha(p.accent, accentWash('light', 0.1)));
       r.addColorStop(1, alpha(p.accent, 0));
       ctx.fillStyle = r;
       ctx.fillRect(0, 0, W, H);
@@ -135,7 +135,7 @@ export const minimal: ThemeDef = {
         const ly = pad + (s.phrase ? 220 : 186) * u;
         lyrics(x, ly, w, lowTop - ly, 54 * u);
       } else {
-        const cw = 380 * u;
+        const cw = 470 * u;   // 사진이 작아 보이지 않게 (예전 380)
         coverAt(x, pad, cw);
         const ix = x + cw + 48 * u, iw = W - ix - pad;
         head(ix, pad + 26 * u, 'left', iw);

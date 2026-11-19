@@ -2,7 +2,7 @@
 // 질감은 매 프레임 새로 만들지 않고 오프스크린 캔버스로 한 번만 만들어 패턴으로 재사용한다.
 // 모든 애니메이션은 f.time 기반(결정적) — 같은 시각이면 같은 그림 → 내보내기 프레임이 미리보기와 같다.
 import type { AccentPalette, FrameState, RenderKit, Rect, Tone } from '../types';
-import { hexToRgb } from '../color';
+import { guardSurface, hexToRgb } from '../color';
 
 export type Shape = 'tall' | 'square' | 'land';
 /** 화면 모양 — 9:16·4:5 = tall, 1:1 = square, 16:9 = land */
@@ -155,7 +155,7 @@ export function isNative(f: FrameState, baseTone: Tone): boolean {
  * palette.bg와 달리 사진 전체 배경 배치에서도 덮개색이 아니라 테마 바탕을 돌려준다.
  */
 export function surfaceOf(f: FrameState, toneBg: (tone: Tone, p: AccentPalette) => string): string {
-  return f.palette.bgCustom ? f.palette.bg : toneBg(f.palette.tone, f.palette);
+  return f.palette.bgCustom ? f.palette.bg : guardSurface(toneBg(f.palette.tone, f.palette), f.palette.tone);
 }
 
 /** #rrggbb → 'r,g,b' (vignette 등 rgba 문자열 조립용) */

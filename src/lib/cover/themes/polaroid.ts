@@ -56,8 +56,8 @@ export const polaroid: ThemeDef = {
       pw = (H - pad * 2.2) * 0.86; px = pad * 1.6; py = (H - pw / 0.86) / 2; rot = -0.045;
       const lx = px + pw + pad * 1.4; lr = { x: lx, y: pad * 1.6, w: W - lx - pad * 1.3, h: H - pad * 3.4 };
     } else if (shape === 'square') {
-      pw = 430 * u; px = pad; py = pad * 1.1; rot = -0.05;
-      const lx = px + pw + 60 * u; lr = { x: lx, y: pad * 2.2, w: W - lx - pad * 0.8, h: H - pad * 3.8 };
+      pw = 500 * u; px = pad * 0.8; py = pad; rot = -0.05;   // 사진이 작아 보이지 않게 (예전 430)
+      const lx = px + pw + 56 * u; lr = { x: lx, y: pad * 2.2, w: W - lx - pad * 0.7, h: H - pad * 3.8 };
     } else {
       pw = Math.min(W - pad * 2.6, H * 0.52 * 0.86); px = (W - pw) / 2; py = H * 0.07; rot = -0.035;
       lr = { x: pad, y: py + pw / 0.86 + 90 * u, w: W - pad * 2, h: H - (py + pw / 0.86 + 90 * u) - pad * 1.6 };

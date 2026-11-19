@@ -7,8 +7,8 @@ import { shapeOf, titleOf, artistOf, text, rr, grain, vignette, hash01, setSpaci
 const roomBg = (tone: Tone, p: AccentPalette) => (tone === 'dark' ? '#0a0908' : mix(p.accentSoft, '#f7f5ef', 0.82));
 
 /** 필름 띠 하나 (가로 방향: 위·아래 / 세로 방향: 좌·우) */
-function sprockets(ctx: CanvasRenderingContext2D, u: number, x: number, y: number, w: number, h: number, vertical: boolean, offset: number, holeColor = '#e9e2d0') {
-  ctx.fillStyle = '#0d0c0b';
+function sprockets(ctx: CanvasRenderingContext2D, u: number, x: number, y: number, w: number, h: number, vertical: boolean, offset: number, holeColor = '#e9e2d0', stripColor = '#0d0c0b') {
+  ctx.fillStyle = stripColor;
   ctx.fillRect(x, y, w, h);
   const hole = 30 * u, pitch = 56 * u, holeL = 22 * u;
   ctx.fillStyle = holeColor;
@@ -86,7 +86,7 @@ export const film: ThemeDef = {
       ctx.fillStyle = light ? `rgba(40,32,24,${0.05 + hash01(bucket + i) * 0.08})` : `rgba(255,250,235,${0.08 + hash01(bucket + i) * 0.12})`;
       ctx.fillRect(sxp, fy, Math.max(1, 1.4 * u), fh);
     }
-    if ((s.photoLayout !== 'background' || s.bgStyle === 'blur') && light) vignette(ctx, f, 0.28, p.bgCustom ? rgbOf(mix(surf, '#000000', 0.45)) : '86,74,58');
+    if ((s.photoLayout !== 'background' || s.bgStyle === 'blur') && light) vignette(ctx, f, 0.14, p.bgCustom ? rgbOf(mix(surf, '#000000', 0.45)) : '86,74,58');
     else if (s.photoLayout !== 'background' || s.bgStyle === 'blur') vignette(ctx, f, 0.7);
     if (!vertical && (s.photoLayout !== 'background' || s.bgStyle === 'blur')) {
       // 크레디트·자막이 사진 위에서도 읽히게 위아래를 살짝 어둡게 (라이트: 덮개색으로 밝게)
@@ -107,16 +107,18 @@ export const film: ThemeDef = {
     // 필름 띠
     // 구멍 너머로 보이는 빛 — 다크: 영사기 빛 / 라이트: 라이트박스 면
     const hole = light ? mix(surf, '#ffffff', 0.6) : '#e9e2d0';
+    // 라이트: 라이트박스 위 현상된 필름 베이스처럼 반투명 회갈색 띠 (검은 띠는 라이트 화면을 어둡게 만든다)
+    const strip = light ? mix(surf, '#5f574d', 0.5) : '#0d0c0b';
     if (vertical) {
-      sprockets(ctx, u, 0, 0, band, H, true, roll, hole);
-      sprockets(ctx, u, W - band, 0, band, H, true, roll, hole);
+      sprockets(ctx, u, 0, 0, band, H, true, roll, hole, strip);
+      sprockets(ctx, u, W - band, 0, band, H, true, roll, hole, strip);
     } else {
-      sprockets(ctx, u, 0, 0, W, band, false, roll, hole);
-      sprockets(ctx, u, 0, H - band, W, band, false, roll, hole);
+      sprockets(ctx, u, 0, 0, W, band, false, roll, hole, strip);
+      sprockets(ctx, u, 0, H - band, W, band, false, roll, hole, strip);
     }
     // 띠 가장자리 인쇄 글자 (필름 코드)
     ctx.save();
-    ctx.fillStyle = alpha(nat ? p.accent : ensureContrast(p.accent, '#0d0c0b', 3), 0.95);   // 필름 띠(늘 어두움) 위 인쇄 글자
+    ctx.fillStyle = alpha(nat ? p.accent : ensureContrast(p.accent, strip, 3), 0.95);   // 필름 띠 위 인쇄 글자 (다크: 검은 띠, 라이트: 회갈색 띠)
     ctx.font = kit.font(15 * u, 700, kit.mono);
     setSpacing(ctx, 3 * u);
     const frameNo = 12 + Math.floor(f.time * 0.5);

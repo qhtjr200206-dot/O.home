@@ -158,17 +158,17 @@ export const neon: ThemeDef = {
       if (pat) {
         ctx.save();
         ctx.globalCompositeOperation = 'multiply';
-        ctx.globalAlpha = light ? 0.55 : 0.9;
+        ctx.globalAlpha = light ? 0.4 : 0.9;
         const k = f.u * 1.2; ctx.scale(k, k); ctx.fillStyle = pat; ctx.fillRect(0, 0, W / k, H / k);
         ctx.restore();
       }
     }
     // 네온이 벽을 비추는 빛 (낮에는 은은하게)
     const g = ctx.createRadialGradient(W / 2, H * 0.4, 0, W / 2, H * 0.4, Math.max(W, H) * 0.65);
-    g.addColorStop(0, alpha(p.accent, (light ? 0.1 : 0.22) * flickerOn(f, 1)));
+    g.addColorStop(0, alpha(p.accent, (light ? 0.08 : 0.22) * flickerOn(f, 1)));
     g.addColorStop(1, 'rgba(0,0,0,0)');
     ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
-    if (light) vignette(ctx, f, 0.3, f.settings.photoLayout === 'background' ? rgbOf(p.dim) : rgbOf(mix(surfaceOf(f, wallBg), '#3a2f28', 0.55)));
+    if (light) vignette(ctx, f, 0.14, f.settings.photoLayout === 'background' ? rgbOf(p.dim) : rgbOf(mix(surfaceOf(f, wallBg), '#3a2f28', 0.55)));
     else vignette(ctx, f, 0.75);
     grain(ctx, f, 0.05, 0);
   },
@@ -204,9 +204,9 @@ export const neon: ThemeDef = {
       // 정사각: 제목은 위 가운데, 아래는 왼쪽 사진 + 오른쪽 가사
       tw = W - pad * 2; tx = W / 2; ty = pad * 1.5;
       const top = ty + (s.phrase ? 190 : 150) * u;
-      const pw = coverMode ? 400 * u : 0;
+      const pw = coverMode ? 470 * u : 0;   // 사진이 작아 보이지 않게 (예전 400)
       if (coverMode) photo = { x: pad + 18 * u, y: top + 18 * u, w: pw };
-      const lx = coverMode ? pad + pw + 90 * u : pad;
+      const lx = coverMode ? pad + pw + 80 * u : pad;
       lr = { x: lx, y: top, w: W - lx - pad, h: H - top - pad * 1.3 };
     } else {
       tw = W - pad * 2; tx = W / 2; ty = H * 0.12;

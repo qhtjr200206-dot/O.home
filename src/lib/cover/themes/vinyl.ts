@@ -1,11 +1,11 @@
 // LP 턴테이블 — 돌아가는 검은 레코드, 가운데 라벨에 사진, 톤암은 진행률만큼 안쪽으로.
 import type { AccentPalette, FrameState, RenderKit, ThemeDef, Tone } from '../types';
-import { alpha, mix } from '../color';
+import { accentWash, alpha, mix } from '../color';
 import { shapeOf, titleOf, artistOf, text, progressBar, withShadow, rr, photoBackdrop, grain, vignette, setSpacing, paper, isNative, surfaceOf, rgbOf } from './_paint';
 
 const RPM = 33.333;
 
-function record(ctx: CanvasRenderingContext2D, f: FrameState, kit: RenderKit, cx: number, cy: number, R: number) {
+function record(ctx: CanvasRenderingContext2D, f: FrameState, kit: RenderKit, cx: number, cy: number, R: number, labelPhoto = true) {
   const u = f.u;
   const ang = f.time * (RPM / 60) * Math.PI * 2;
   const light = f.palette.tone === 'light';
@@ -55,7 +55,7 @@ function record(ctx: CanvasRenderingContext2D, f: FrameState, kit: RenderKit, cx
   const L = R * 0.36;
   ctx.save();
   ctx.translate(cx, cy); ctx.rotate(ang);
-  if (f.settings.photoLayout === 'cover' && f.image) {
+  if (labelPhoto && f.settings.photoLayout === 'cover' && f.image) {
     kit.drawPhoto(ctx, { x: -L, y: -L, w: L * 2, h: L * 2 }, { radius: L });
   } else {
     ctx.beginPath(); ctx.arc(0, 0, L, 0, Math.PI * 2); ctx.fillStyle = f.palette.accent; ctx.fill();
@@ -73,6 +73,21 @@ function record(ctx: CanvasRenderingContext2D, f: FrameState, kit: RenderKit, cx
   const sg = ctx.createRadialGradient(cx - 3 * u, cy - 3 * u, 1, cx, cy, 11 * u);
   sg.addColorStop(0, '#f4f4f4'); sg.addColorStop(1, '#8a8a8a');
   ctx.fillStyle = sg; ctx.fill();
+}
+
+/** 앨범 재킷 — 커버 사진을 크게 (레코드는 재킷에서 빠져나온 모양) */
+function sleeve(ctx: CanvasRenderingContext2D, f: FrameState, kit: RenderKit, x: number, y: number, size: number) {
+  const u = f.u;
+  const light = f.palette.tone === 'light';
+  withShadow(ctx, 46 * u, 20 * u, light ? alpha(f.palette.shadow, 0.3) : 'rgba(0,0,0,0.6)', () => {
+    ctx.fillStyle = '#111'; ctx.fillRect(x, y, size, size);
+  });
+  kit.drawPhoto(ctx, { x, y, w: size, h: size });
+  // 종이 재킷 질감 — 가장자리 미세한 하이라이트와 닳은 모서리 느낌
+  const g = ctx.createLinearGradient(x, y, x + size, y + size);
+  g.addColorStop(0, 'rgba(255,255,255,0.10)'); g.addColorStop(0.5, 'rgba(255,255,255,0)'); g.addColorStop(1, 'rgba(0,0,0,0.12)');
+  ctx.fillStyle = g; ctx.fillRect(x, y, size, size);
+  ctx.strokeStyle = 'rgba(255,255,255,0.18)'; ctx.lineWidth = 1.5 * u; ctx.strokeRect(x + 0.75 * u, y + 0.75 * u, size - 1.5 * u, size - 1.5 * u);
 }
 
 function tonearm(ctx: CanvasRenderingContext2D, f: FrameState, cx: number, cy: number, R: number) {
@@ -119,7 +134,7 @@ const deskBg = (tone: Tone, p: AccentPalette) =>
 export const vinyl: ThemeDef = {
   id: 'vinyl',
   name: 'LP 턴테이블',
-  desc: '돌아가는 레코드와 톤암 — 라벨에 커버 사진',
+  desc: '앨범 재킷과 돌아가는 레코드, 톤암',
   suggestedAccent: '#d9a441',
   baseTone: 'dark',
   toneBg: deskBg,
@@ -133,7 +148,7 @@ export const vinyl: ThemeDef = {
       ctx.fillStyle = surfaceOf(f, deskBg);
       ctx.fillRect(0, 0, W, H);
       const g = ctx.createRadialGradient(W * 0.38, H * 0.32, 0, W * 0.38, H * 0.32, Math.max(W, H) * 0.8);
-      g.addColorStop(0, alpha(p.accent, 0.28));
+      g.addColorStop(0, alpha(p.accent, accentWash('dark', 0.22)));
       g.addColorStop(1, 'rgba(0,0,0,0)');
       ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
     } else {
@@ -141,13 +156,13 @@ export const vinyl: ThemeDef = {
       paper(ctx, f, { x: 0, y: 0, w: W, h: H }, surfaceOf(f, deskBg), 0.2);
       const g = ctx.createRadialGradient(W * 0.3, H * 0.22, 0, W * 0.3, H * 0.22, Math.max(W, H) * 0.85);
       g.addColorStop(0, 'rgba(255,253,246,0.55)');
-      g.addColorStop(0.55, alpha(p.accent, 0.06));
+      g.addColorStop(0.55, alpha(p.accent, accentWash('light', 0.05)));
       g.addColorStop(1, 'rgba(255,255,255,0)');
       ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
     }
     // 라이트: 사진 배경이면 덮개색으로 가장자리를 밝게, 데스크면 따뜻한 갈색 그늘
     if (light && f.settings.photoLayout === 'background') vignette(ctx, f, 0.35, rgbOf(p.dim));
-    else if (light) vignette(ctx, f, 0.22, p.bgCustom ? rgbOf(mix(p.bg, '#000000', 0.5)) : '92,64,36');
+    else if (light) vignette(ctx, f, 0.1, p.bgCustom ? rgbOf(mix(p.bg, '#000000', 0.5)) : '92,64,36');
     else vignette(ctx, f, 0.6);
     grain(ctx, f, light ? 0.05 : 0.07, 0);
   },
@@ -161,7 +176,29 @@ export const vinyl: ThemeDef = {
     const acc = nat ? p.accent : p.accentInk;
     let cx: number, cy: number, R: number;
     let tx: number, ty: number, tw: number, ly: number, lh: number;
-    if (shape === 'land') {
+    // 커버형: 앨범 재킷(사진 크게) + 재킷에서 반쯤 빠져나온 레코드. 전체 배경형은 사진이 이미 크니 큰 레코드만.
+    const jacket = s.photoLayout === 'cover';
+    let jk: { x: number; y: number; s: number } | null = null;
+    const vizBand = s.visualizer !== 'none' && s.visualizer !== 'radial';
+    if (jacket) {
+      if (shape === 'land') {
+        const js = Math.min(H - pad * 2.4, W * 0.36); jk = { x: pad + 10 * u, y: (H - js) / 2, s: js };
+        R = js * 0.44; cx = jk.x + js + R * 0.35; cy = H / 2;
+        tx = cx + R + 110 * u; tw = W - tx - pad; ty = pad + 40 * u;
+        ly = ty + 200 * u; lh = H - ly - 200 * u;
+      } else if (shape === 'square') {
+        const js = 470 * u; jk = { x: pad, y: pad, s: js };
+        R = js * 0.46; cx = pad + js + R * 0.42; cy = pad + js / 2;
+        tx = pad; tw = W - pad * 2; ty = pad + js + 70 * u;
+        ly = ty + (s.phrase ? 190 : 150) * u; lh = H - ly - (vizBand ? 206 : 120) * u;
+      } else {
+        // 세로: 재킷 + 오른쪽으로 빠져나온 레코드가 가로폭 안에 들어오게
+        const js = Math.min((W - pad * 2) / (1 + 0.44 * 1.35), H * 0.4); jk = { x: pad, y: pad + 40 * u, s: js };
+        R = js * 0.44; cx = pad + js + R * 0.35; cy = jk.y + js / 2;
+        tx = pad; tw = W - pad * 2; ty = jk.y + js + 110 * u;
+        ly = ty + 170 * u; lh = H - ly - 230 * u;
+      }
+    } else if (shape === 'land') {
       R = H * 0.38; cx = pad + R + 20 * u; cy = H / 2;
       tx = cx + R + 200 * u; tw = W - tx - pad; ty = pad + 40 * u;
       ly = ty + 200 * u; lh = H - ly - 200 * u;
@@ -169,7 +206,7 @@ export const vinyl: ThemeDef = {
       // 정사각: 큰 판을 오른쪽 위 모서리에 걸쳐 잘라 두고, 글자는 왼쪽 아래로
       R = 380 * u; cx = W - 230 * u; cy = 290 * u;
       tx = pad; tw = 470 * u; ty = 440 * u;
-      ly = 690 * u; lh = H - ly - (s.visualizer !== 'none' && s.visualizer !== 'radial' ? 250 : 150) * u;
+      ly = 690 * u; lh = H - ly - (vizBand ? 250 : 150) * u;
     } else {
       R = Math.min(W * 0.4, H * 0.24); cx = W / 2 - 30 * u; cy = pad + R + 60 * u;
       tx = pad; tw = W - pad * 2; ty = cy + R + 110 * u;
@@ -180,7 +217,8 @@ export const vinyl: ThemeDef = {
       const VR = R * 1.32;
       kit.drawVisualizer(ctx, { x: cx - VR, y: cy - VR, w: VR * 2, h: VR * 2 }, { color: acc, color2: ink, innerRadius: 1.03 / 1.32, glow: 8 * u });
     }
-    record(ctx, f, kit, cx, cy, R);
+    record(ctx, f, kit, cx, cy, R, !jacket);
+    if (jk) sleeve(ctx, f, kit, jk.x, jk.y, jk.s);
     if (cx + R * 1.1 < W) tonearm(ctx, f, cx, cy, R);   // 회전축이 화면 밖이면 생략
 
     // 제목 묶음 — 레이블처럼 작은 모노 머리말 + 큰 제목
@@ -203,7 +241,8 @@ export const vinyl: ThemeDef = {
     const bx = shape === 'land' ? tx : pad, bw = shape === 'land' ? tw : W - pad * 2;
     const by = H - pad;
     if (s.visualizer !== 'none' && s.visualizer !== 'radial') {
-      kit.drawVisualizer(ctx, { x: bx, y: by - 150 * u, w: bw, h: 80 * u }, { color: acc, color2: ink, alpha: 0.85, count: 64 });
+      const tight = jacket && shape === 'square';   // 재킷 정사각은 가사 칸을 위해 띠를 낮게
+      kit.drawVisualizer(ctx, { x: bx, y: by - (tight ? 116 : 150) * u, w: bw, h: (tight ? 56 : 80) * u }, { color: acc, color2: ink, alpha: 0.85, count: 64 });
     }
     if (s.showProgress) {
       progressBar(ctx, bx, by - 40 * u, bw, 4 * u, kit.progress, { track: nat ? 'rgba(255,255,255,0.16)' : p.line, fill: acc, knob: ink, knobR: 8 * u });

@@ -52,6 +52,13 @@ export function motionAt(kind: MotionId, t: number, strength: number): MotionSta
 /** 장면(전경) 전체에 거는 breathe 배율 비율 — 사진 안쪽 줌보다 약하게 */
 const SCENE_BREATHE = 0.4;
 
+/** 전체 배경 사진(선명·그라데이션·가사 블러)에 덮는 바탕색 양.
+ *  다크 기본(auto)은 사진 그대로, 라이트 톤은 흰색으로 밝게, 배경색을 고르면 그 색으로 물들인다. */
+export function backdropWash(tone: 'dark' | 'light', custom: boolean): number {
+  if (tone === 'light') return custom ? 0.42 : 0.4;
+  return custom ? 0.34 : 0;
+}
+
 export interface FrameInput {
   settings: CoverSettings;
   width: number; height: number;
@@ -721,6 +728,12 @@ export function buildKit(f: FrameState, textRect?: Rect, panels: Rect[] = []): R
           ctx.fillRect(rect.x, rect.y, rect.w, rect.h);
           ctx.restore();
       }
+    }
+    if (backdrop && style !== 'blur') {
+      // 선명·그라데이션·가사 블러에서도 배경색(직접 고른 색)과 라이트 톤이 화면에 반영되게 사진 전체에 옅게 덮는다.
+      // (전에는 'blur'일 때만 덮개를 깔아서, 다른 처리에서는 배경 추천색을 골라도 그림이 그대로였다)
+      const wash = backdropWash(f.palette.tone, f.palette.bgCustom);
+      if (wash > 0) { ctx.fillStyle = alpha(f.palette.dim, wash); ctx.fillRect(rect.x, rect.y, rect.w, rect.h); }
     }
     if (backdrop && style === 'gradient' && textRect && f.settings.bgStrength > 0) {
       // 가사 영역이 가로로 치우치면 그쪽에서, 아니면 아래에서 그라데이션.
