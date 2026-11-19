@@ -7,6 +7,8 @@ import type { Firestore, DocumentData } from 'firebase-admin/firestore';
 const scrypt = promisify(scryptCallback);
 const WINDOW = 15 * 60 * 1000;
 const MAX_FAILURES = 8;
+// A per-character ceiling also applies when forwarded IP headers are spoofed.
+const MAX_CHARACTER_FAILURES = 64;
 const PUBLIC_KEYS = ['id', 'name', 'own', 'visibility', 'slug', 'secId', 'thumbId', 'thumbCrop', 'thumbClass'] as const;
 const LOCK_KEYS = ['locked', 'lockStub', 'lockHash', 'lockSalt', 'lockIter', 'lockAlgorithm', 'lockVersion'];
 
@@ -79,7 +81,7 @@ export async function changeCharacterLock(db: Firestore, uid: string, id: string
   });
 }
 
-export type OpenResult = { ok: true; character: Row } | { ok: false; error: string; status: number };
+export type OpenResult = { ok: true; character: Row; lockVersion: string } | { ok: false; error: string; status: number };
 /** Password checks and rate-limit writes are transactional, including concurrent attempts. */
 export async function openCharacter(db: Firestore, id: string, password: string, authenticated: boolean, client: string): Promise<OpenResult> {
   if (!validCharacterId(id) || typeof password !== 'string' || !password.trim() || password.length > 200) return { ok: false, error: '잘못된 요청입니다', status: 400 };
@@ -87,27 +89,35 @@ export async function openCharacter(db: Firestore, id: string, password: string,
   const secRef = db.collection('char_secrets').doc(id);
   const key = createHash('sha256').update(`${client}|${id}`).digest('hex');
   const triesRef = db.collection('char_unlock_tries').doc(key);
+  const globalKey = createHash('sha256').update(`global:${id}`).digest('hex');
+  const globalRef = db.collection('char_unlock_tries').doc(globalKey);
   return db.runTransaction(async tx => {
     const pubSnap = await tx.get(pubRef);
     const secSnap = await tx.get(secRef);
     const triesSnap = await tx.get(triesRef);
+    const globalSnap = await tx.get(globalRef);
     if (!pubSnap.exists) return { ok: false, error: '캐릭터를 찾을 수 없습니다', status: 404 };
     const pub = pubSnap.data()!;
     if (!record(pub.data) || pub.data.locked !== true) return { ok: false, error: '잠긴 캐릭터가 아닙니다', status: 400 };
+    if (typeof pub.data.lockVersion !== 'string' || !pub.data.lockVersion) return { ok: false, error: '잠금 버전을 확인할 수 없습니다', status: 409 };
     if (pub.visibility !== 'public' && !(pub.visibility === 'member' && authenticated)) return { ok: false, error: '열람 권한이 없습니다', status: 403 };
     const now = Date.now();
     const tries = triesSnap.data();
     const active = typeof tries?.since === 'number' && now - tries.since < WINDOW;
-    if (active && typeof tries?.fails === 'number' && tries.fails >= MAX_FAILURES) return { ok: false, error: '너무 많은 시도입니다. 잠시 뒤 다시 시도해 주세요', status: 429 };
+    const global = globalSnap.data();
+    const globalActive = typeof global?.since === 'number' && now - global.since < WINDOW;
+    if ((globalActive && typeof global?.fails === 'number' && global.fails >= MAX_CHARACTER_FAILURES)
+      || (active && typeof tries?.fails === 'number' && tries.fails >= MAX_FAILURES)) return { ok: false, error: '너무 많은 시도입니다. 잠시 뒤 다시 시도해 주세요', status: 429 };
     const sec = secSnap.data()?.data;
     if (!record(sec) || !record(sec.character) || sec.lockAlgorithm !== 'scrypt-v1' || typeof sec.lockSalt !== 'string' || !/^[a-f0-9]{32}$/.test(sec.lockSalt) || typeof sec.lockHash !== 'string' || !/^[a-f0-9]{128}$/.test(sec.lockHash)) return { ok: false, error: '잠금 정보를 찾을 수 없습니다', status: 409 };
     const got = Buffer.from(await hashPassword(password, sec.lockSalt), 'hex');
     const want = Buffer.from(sec.lockHash, 'hex');
     if (!timingSafeEqual(got, want)) {
       tx.set(triesRef, { since: active ? tries!.since : now, fails: active ? (Number(tries!.fails) || 0) + 1 : 1 });
+      tx.set(globalRef, { since: globalActive ? global!.since : now, fails: globalActive ? (Number(global!.fails) || 0) + 1 : 1 });
       return { ok: false, error: '비밀번호가 올바르지 않습니다', status: 401 };
     }
     if (triesSnap.exists) tx.delete(triesRef);
-    return { ok: true, character: { ...strip(sec.character), id } };
+    return { ok: true, character: { ...strip(sec.character), id }, lockVersion: pub.data.lockVersion };
   });
 }

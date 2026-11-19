@@ -11,10 +11,26 @@ const json = (body: unknown, status = 200) => Response.json(body, { status, head
 const bearer = (req: Request) => /^Bearer\s+(\S+)$/i.exec(req.headers.get('authorization') ?? '')?.[1];
 async function bodyOf(req: Request): Promise<Record<string, unknown> | null> {
   try {
-    if (Number(req.headers.get('content-length') ?? 0) > 4096) return null;
-    const text = await req.text();
-    if (text.length > 4096) return null;
-    const obj: unknown = JSON.parse(text);
+    if (Number(req.headers.get('content-length') ?? 0) > 4096 || !req.body) return null;
+    const reader = req.body.getReader();
+    const chunks: Uint8Array[] = [];
+    let length = 0;
+    try {
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        length += value.byteLength;
+        if (length > 4096) {
+          void reader.cancel().catch(() => {});
+          return null;
+        }
+        chunks.push(value);
+      }
+    } finally { reader.releaseLock(); }
+    const bytes = new Uint8Array(length);
+    let offset = 0;
+    for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength; }
+    const obj: unknown = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes));
     return obj && typeof obj === 'object' && !Array.isArray(obj) ? obj as Record<string, unknown> : null;
   } catch { return null; }
 }
@@ -47,7 +63,7 @@ export function createCharacterLockHandlers(deps: Dependencies) {
       const client = (req.headers.get('x-forwarded-for') ?? '').split(',')[0].trim().slice(0, 100) || 'unknown';
       try {
         const result = await deps.open(body.id, body.password, authenticated, client);
-        return result.ok ? json({ char: result.character }) : json({ error: result.error }, result.status);
+        return result.ok ? json({ char: result.character, lockVersion: result.lockVersion }) : json({ error: result.error }, result.status);
       } catch { return json({ error: '서버에서 처리하지 못했습니다' }, 500); }
     },
   };

@@ -1,0 +1,121 @@
+rules_version = '2';
+
+// ============================================================
+// O.HOME Firestore 보안 규칙
+// Firebase 콘솔 → Firestore Database → 규칙 에 붙여넣고 [게시].
+//
+// 문서 구조
+//   meta/owner            { uid, admins[] }   ← 첫 로그인 계정이 1회만 자기를 등록
+//   profiles/{uid}        { nickname, avatarUrl, avatarColor }
+//   settings/{key}        { value }           ← 테마·메뉴·폰트·메인 위젯 등
+//   <콘텐츠>/{id}          { data, authorId, visibility, sort }
+// ============================================================
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function ownerData() {
+      return get(/databases/$(database)/documents/meta/owner).data;
+    }
+
+    function isAdmin() {
+      return signedIn()
+        && exists(/databases/$(database)/documents/meta/owner)
+        && (ownerData().uid == request.auth.uid
+            || (ownerData().keys().hasAny(['admins']) && request.auth.uid in ownerData().admins));
+    }
+
+    // 콘텐츠 컬렉션 목록 — 여기 없는 이름은 아무 권한도 없다
+    function isContent(name) {
+      return name in [
+        'posts', 'guestbook', 'characters', 'relations', 'gallery', 'roadview',
+        'trpg_logs', 'trpg_chars', 'dotori', 'playlog', 'rp_rooms', 'threads',
+        'diary', 'memos', 'commissions', 'applicants', 'trpg_log_bodies', 'moods'
+      ];
+    }
+
+    // 이전 클라이언트의 오래된 전체 문서 저장이 잠금을 풀거나 본문을 공개하지 못한다.
+    // 잠금 해제는 향후 서버 Admin SDK의 원자적 작업으로만 수행해야 한다.
+    function characterLocked(data) {
+      return data.keys().hasAny(['locked']) && data.locked == true;
+    }
+    function safeCharacterWrite(coll) {
+      return coll != 'characters' || !characterLocked(request.resource.data.data)
+        || (isAdmin() && request.resource.data.editorIds is list
+          && request.resource.data.editorIds.size() == 0
+          && request.resource.data.keys().hasOnly(['data', 'authorId', 'visibility', 'sort', 'editorIds', 'updatedAt'])
+          && request.resource.data.data.keys().hasOnly([
+          'id', 'name', 'own', 'visibility', 'slug', 'secId', 'thumbId',
+          'thumbCrop', 'thumbClass', 'locked', 'lockStub', 'lockVersion'
+        ]));
+    }
+    function safeCharacterCreate(coll) {
+      return coll != 'characters' || !characterLocked(request.resource.data.data);
+    }
+    function safeCharacterDelete(coll) {
+      return coll != 'characters' || !characterLocked(resource.data.data);
+    }
+    function safeCharacterUpdate(coll) {
+      return coll != 'characters'
+        || (!characterLocked(resource.data.data) && !characterLocked(request.resource.data.data))
+        || (characterLocked(resource.data.data) && characterLocked(request.resource.data.data)
+          && request.resource.data.data.lockVersion == resource.data.data.lockVersion);
+    }
+
+    // ── 소유자(관리자) 지정 — 아직 없을 때 딱 한 번 ──────────────
+    match /meta/owner {
+      allow read: if true;
+      allow create: if signedIn() && !exists(/databases/$(database)/documents/meta/owner);
+      allow update, delete: if isAdmin();
+    }
+
+    // ── 회원 프로필 ─────────────────────────────────────────────
+    match /profiles/{uid} {
+      allow read: if true;
+      allow create, update: if signedIn() && (request.auth.uid == uid || isAdmin());
+      allow delete: if isAdmin();
+    }
+
+    // ── 사이트 설정 (읽기 공개 · 쓰기 관리자) ────────────────────
+    match /settings/{key} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    // 잠금 자관 본문: 관리자만 접근; 방문자는 서버의 비밀번호 검증으로만 읽는다.
+    match /rel_secrets/{docId} {
+      allow read, create, update, delete: if isAdmin();
+    }
+
+    // 잠금 캐릭터의 비밀 문서는 관리자만 직접 접근한다. Admin SDK는 규칙을 우회한다.
+    match /char_secrets/{docId} {
+      allow read, write: if isAdmin();
+    }
+
+    // ── 콘텐츠 ─────────────────────────────────────────────────
+    match /{coll}/{docId} {
+      // 읽기: 전체공개 / 멤버공개(로그인) / 내가 쓴 것 / 관리자
+      allow read: if isContent(coll) && (
+        resource.data.visibility == 'public'
+        || (resource.data.visibility == 'member' && signedIn())
+        || (signedIn() && resource.data.authorId == request.auth.uid)
+        || isAdmin()
+      );
+
+      // 쓰기: 로그인 회원 — 방명록만 비로그인 방문자도 남길 수 있음(닉네임+비밀번호 방식)
+      allow create: if isContent(coll) && safeCharacterCreate(coll) && safeCharacterWrite(coll) && (signedIn() || coll == 'guestbook');
+
+      // 수정·삭제: 작성자 본인 또는 관리자
+      allow update: if isContent(coll) && safeCharacterWrite(coll) && safeCharacterUpdate(coll)
+        && signedIn()
+        && (resource.data.authorId == request.auth.uid || isAdmin());
+      allow delete: if isContent(coll) && safeCharacterDelete(coll)
+        && signedIn()
+        && (resource.data.authorId == request.auth.uid || isAdmin());
+    }
+  }
+}

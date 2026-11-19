@@ -56,6 +56,7 @@ const initial = {
   const right = await openCharacter(m.db, 'c1', '1234', false, 'ip');
   assert.equal(right.ok, true); assert.equal(right.character.basicHtml, 'TOP SECRET');
   assert.equal(right.character.lockHash, undefined);
+  assert.equal(right.lockVersion, state['characters/c1'].data.lockVersion);
   const version = state['characters/c1'].data.lockVersion;
   assert.ok(typeof version === 'string' && version.length >= 16);
   await changeCharacterLock(m.db, 'other-admin', 'c1', 'changePassword', 'new password');
@@ -80,6 +81,10 @@ const initial = {
   await changeCharacterLock(limited.db, 'admin', 'c1', 'lock', '1234');
   for (let i = 0; i < 8; i++) assert.equal((await openCharacter(limited.db, 'c1', 'wrong', false, 'same-ip')).status, 401);
   assert.equal((await openCharacter(limited.db, 'c1', '1234', false, 'same-ip')).status, 429);
+  const distributed = memory(initial);
+  await changeCharacterLock(distributed.db, 'admin', 'c1', 'lock', '1234');
+  for (let i = 0; i < 64; i++) assert.equal((await openCharacter(distributed.db, 'c1', 'wrong', false, `spoofed-${i}`)).status, 401);
+  assert.equal((await openCharacter(distributed.db, 'c1', '1234', false, 'new-spoofed-ip')).status, 429);
   const member = memory({ ...initial, 'characters/c1': { ...initial['characters/c1'], visibility: 'member' } });
   await changeCharacterLock(member.db, 'admin', 'c1', 'lock', '1234');
   assert.equal((await openCharacter(member.db, 'c1', '1234', false, 'ip')).status, 403);

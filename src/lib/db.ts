@@ -11,6 +11,7 @@ import { backend, COLLECTION_OF } from './backend';
 import type { ListItem } from './backend';
 import { REL_SECRET_COLL, REL_LOCK_EVT, mergeRels, openedAnswers, splitRels } from './relLock';
 import type { Relation } from './charStore';
+import { CHAR_LOCK_EVT, mergeCharacterReads, ensureNoLockedWrites, clearOpenedCharacters } from './charLockClient';
 
 export { COLLECTION_OF as TABLE_OF };
 
@@ -21,6 +22,13 @@ export async function fetchList<T extends ListItem>(coll: string): Promise<T[]> 
   const be = backend();
   if (!be) return [];
   const rows = await be.fetchList<T>(coll);
+  if (coll === 'characters') {
+    const pub = rows as unknown as Parameters<typeof mergeCharacterReads>[0];
+    if (!pub.some(c => c.locked)) return mergeCharacterReads(pub, []) as unknown as T[];
+    let secretReadFailed = false;
+    const sec = await be.fetchList<ListItem>('char_secrets').catch(() => { secretReadFailed = true; return [] as ListItem[]; });
+    return mergeCharacterReads(pub, sec as unknown as Parameters<typeof mergeCharacterReads>[1], secretReadFailed) as unknown as T[];
+  }
   if (coll === REL_COLL) {
     const pub = rows as unknown as Relation[];
     if (!pub.some(r => r.locked)) return rows;
@@ -45,6 +53,7 @@ export async function syncList<T extends ListItem>(
 ): Promise<void> {
   const be = backend();
   if (!be) return;
+  if (coll === 'characters') ensureNoLockedWrites(prev, next);
   if (coll !== REL_COLL) { await be.syncList(coll, prev, next, uid); return; }
 
   const a = splitRels(prev as unknown as Relation[]);
@@ -66,7 +75,14 @@ export async function syncList<T extends ListItem>(
 
 export function subscribeTable(coll: string, onChange: () => void): () => void {
   const be = backend();
-  const off = be ? be.subscribe(coll, onChange) : () => { /* 로컬 모드 */ };
+  const off = be ? be.subscribe(coll, () => {
+    if (coll === 'characters') clearOpenedCharacters(false);
+    onChange();
+  }) : () => { /* 로컬 모드 */ };
+  if (coll === 'characters') {
+    window.addEventListener(CHAR_LOCK_EVT, onChange);
+    return () => { off(); window.removeEventListener(CHAR_LOCK_EVT, onChange); };
+  }
   if (coll !== REL_COLL && coll !== QA_COLL) return off;
   // 잠금을 풀었거나 잠금 설정이 바뀌면 자관·답변 목록을 다시 읽는다 (relLock.ts)
   const h = () => onChange();

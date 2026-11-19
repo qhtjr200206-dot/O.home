@@ -5,6 +5,8 @@ import React, { Suspense, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/auth';
 import { useLocalList } from '@/lib/postStore';
+import { charactersWithEditableGrants } from '@/lib/charLockClient';
+import type { LockableCharacter } from '@/lib/charLock';
 import { Character, CHAR_SEED, charPath } from '@/lib/charStore';
 import { backend, isServerMode } from '@/lib/backend';
 import { useSectionParam, filterSection, sectionSetter, secQuery } from '@/lib/sectionStore';
@@ -36,7 +38,7 @@ function CharsInner() {
      editorIds를 서버에서 한 번 다시 계산해 둔다 — 세션당 1회, 조용히. */
   useEffect(() => {
     if (!isAdmin || !isServerMode()) return;
-    const withGrants = charsAll.filter(c => c.grants?.some(g => g.level === 'edit'));
+    const withGrants = charactersWithEditableGrants(charsAll);
     if (!withGrants.length) return;
     try {
       if (sessionStorage.getItem('ohome.editorids.healed') === '1') return;
@@ -49,7 +51,7 @@ function CharsInner() {
   const visible = chars
     .filter(c => c.own)
     .filter(c => isAdmin || c.visibility === 'public')
-    .filter(c => !q || c.name.toLowerCase().includes(q.toLowerCase()) || c.sub.includes(q));
+    .filter(c => !q || c.name.toLowerCase().includes(q.toLowerCase()) || (!(c as LockableCharacter).locked && c.sub?.includes(q)));
 
   // 편집모드 카드 드래그 정렬 (v1.9)
   const sort = useCardSort(visible, next => setChars(mergeOrder(chars, next)), editOn && isAdmin);
@@ -68,20 +70,21 @@ function CharsInner() {
       <div className="g5 chars-grid">
         {visible.map((c, i) => {
           const priv = c.visibility === 'private';
+          const locked = !!(c as LockableCharacter).locked;
           const sp = sort(i) as { style?: React.CSSProperties };
           return (
             <div key={c.id} className="char-card" {...sort(i)}
               style={{ ...(priv ? { opacity: .45 } : undefined), ...sp.style }}
               onClick={() => { if (!editOn) router.push(charPath(c)); }}>
               <div className="thumb" style={{ position: 'relative' }}>
-                <CroppedBlobImg fileRef={c.arts?.[0] ?? c.thumbId} crop={c.thumbCrop} ph={c.thumbClass}
+                <CroppedBlobImg fileRef={locked ? c.thumbId : (c.arts?.[0] ?? c.thumbId)} crop={c.thumbCrop} ph={c.thumbClass}
                   label={priv ? '비공개' : '3:4'} />
               </div>
               <div className="nm">
                 {/* 리스트에서는 기본 폰트로 통일 — 개별 이름 폰트는 상세에서만 (사용자 확정).
                     긴 이름은 두 줄로 갈라지지 않게 한 줄에 맞춰 줄인다 */}
                 <b style={{ minWidth: 0, flex: 1 }}><FitText>{c.name}</FitText></b>
-                <i style={{ background: c.color }} />
+                {locked ? <span aria-label="잠김">🔒</span> : <i style={{ background: c.color }} />}
               </div>
             </div>
           );

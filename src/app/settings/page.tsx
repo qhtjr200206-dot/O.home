@@ -1594,12 +1594,20 @@ function DataPane() {
     if (!be || !orphans) return;
     setScanning(true);
     let n = 0;
-    for (const f of orphans) {
-      try { await be.deleteFile(f.ref); n += 1; } catch { /* 개별 실패는 건너뜀 */ }
+    try {
+      // 스캔 후 새로 참조된 이미지가 있을 수 있으므로 삭제 직전에 다시 검증한다.
+      const stillOrphan = new Set((await findOrphanFiles(be)).map(f => f.ref));
+      for (const f of orphans) {
+        if (!stillOrphan.has(f.ref)) continue;
+        try { await be.deleteFile(f.ref); n += 1; } catch { /* 개별 실패는 건너뜀 */ }
+      }
+      setOrphans(null);
+      toast(`이미지 ${n}개를 지웠습니다`);
+    } catch (e) {
+      setOrphans(null);
+      toast(e instanceof Error ? e.message : '이미지 재검증에 실패해 삭제를 중단했습니다');
     }
-    setOrphans(null);
     setScanning(false);
-    toast(`이미지 ${n}개를 지웠습니다`);
   };
 
   /* 어디에도 안 걸린 상대 캐릭터 정리 (v2.0 사용자 요청).
@@ -1715,8 +1723,8 @@ function DataPane() {
       a.click();
       URL.revokeObjectURL(u);
       toast(`백업 완료 — 데이터 ${dataCount}건 · 이미지 ${blobCount}개${includeMembers ? ' · 회원 포함' : ''}`);
-    } catch {
-      toast('백업 생성에 실패했습니다');
+    } catch (e) {
+      toast(e instanceof Error ? e.message : '백업 생성에 실패했습니다');
     }
     setBusy(false);
   };
@@ -1728,8 +1736,8 @@ function DataPane() {
       await importBackup(importFile);
       toast('복원 완료 — 새로고침합니다');
       setTimeout(() => window.location.reload(), 800);
-    } catch {
-      toast('복원에 실패했습니다 — 파일을 확인해 주세요');
+    } catch (e) {
+      toast(e instanceof Error ? e.message : '복원에 실패했습니다 — 파일을 확인해 주세요');
       setBusy(false);
     }
   };
@@ -1737,7 +1745,8 @@ function DataPane() {
   return (
     <div className="set-sec">
       <h3>데이터 백업</h3>
-      <div className="d">글·캐릭터·자관·역극 등 모든 데이터(JSON)와 이미지 전부를 zip 하나로 — 다른 브라우저/PC 이전용</div>
+      <div className="d">글·캐릭터·자관·역극 등 데이터(JSON)와 이미지를 zip으로 보관합니다.</div>
+      <p className="hint" role="note">잠금 캐릭터가 포함된 백업은 현재 앱에서 복원하거나 다른 DB로 이전할 수 없습니다. 안전한 서버 복원 기능이 준비될 때까지 잠금을 해제한 뒤 새 백업을 만들어 주세요. 백업에는 비공개 내용과 비밀번호 검증값이 포함되므로 안전하게 보관하세요.</p>
 
       {/* 로컬로 먼저 꾸민 뒤 서버를 붙인 경우에만 — 서버에 없는 설정이 남아 있을 때만 나타난다 (v2.0) */}
       {serverOn && unsynced.length > 0 && (

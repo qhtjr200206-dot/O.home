@@ -34,14 +34,12 @@ service cloud.firestore {
     }
 
     // 콘텐츠 컬렉션 목록 — 여기 없는 이름은 아무 권한도 없다
-    // rel_secrets: 비공개(잠금) 자관의 내용 — 늘 'private'로 저장돼 관리자·작성자만 읽는다.
-    //   방문자는 /api/rels/unlock(서버)이 비밀번호를 확인한 뒤에만 받는다
     function isContent(name) {
       return name in [
         'posts', 'guestbook', 'characters', 'relations', 'gallery', 'roadview',
         'trpg_logs', 'trpg_log_bodies', 'trpg_chars', 'dotori', 'playlog', 'rp_rooms', 'threads',
         'diary', 'memos', 'commissions', 'applicants', 'moods', 'comments', 'qa_answers', 'rp_messages',
-        'notifications', 'rel_secrets'
+        'notifications'
       ];
     }
 
@@ -91,6 +89,17 @@ service cloud.firestore {
     match /settings/{key} {
       allow read: if true;
       allow write: if isAdmin();
+    }
+
+    // 설치용: 공개 문서로 저장할 수 없으며, 작성자와 관리자만 접근한다.
+    match /rel_secrets/{docId} {
+      allow read: if isAdmin() || (signedIn() && resource.data.authorId == request.auth.uid);
+      allow create: if signedIn() && request.resource.data.visibility == 'private'
+        && (isAdmin() || request.resource.data.authorId == request.auth.uid);
+      allow update: if signedIn() && request.resource.data.visibility == 'private'
+        && request.resource.data.authorId == resource.data.authorId
+        && (isAdmin() || resource.data.authorId == request.auth.uid);
+      allow delete: if isAdmin() || (signedIn() && resource.data.authorId == request.auth.uid);
     }
 
     // 잠금 캐릭터의 비밀 문서는 관리자만 직접 접근한다. Admin SDK는 규칙을 우회한다.

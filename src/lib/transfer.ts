@@ -24,6 +24,10 @@ export interface Snapshot {
 
 export type Progress = (msg: string, done?: number, total?: number) => void;
 
+export function requireCompleteSnapshot(snap: Pick<Snapshot, 'failed'>): void {
+  if (snap.failed?.length) throw new Error(`읽지 못한 데이터가 있습니다: ${snap.failed.join(', ')}`);
+}
+
 /* 사이트 설정 키 목록(SETTING_KEYS)은 settingStore가 갖는다 — 백업·이전도 같은 목록을 쓴다 */
 
 /* ---------- 이미지 참조 ---------- */
@@ -125,9 +129,14 @@ export async function dumpAll(be: Backend | null, onProgress?: Progress): Promis
   };
 
   if (be) {
+    // A filtered member/guest query cannot establish that no locked character exists.
+    // Capture identity on both sides of the reads so an auth transition fails closed.
+    let reader: Awaited<ReturnType<Backend['currentUser']>> = null;
+    try { reader = await be.currentUser(); } catch { /* unknown identity */ }
     let i = 0;
-    for (const coll of CONTENT_COLLECTIONS) {
-      onProgress?.(`${coll} 읽는 중`, i, CONTENT_COLLECTIONS.length);
+    const collections = [...new Set([...CONTENT_COLLECTIONS, 'char_secrets'])];
+    for (const coll of collections) {
+      onProgress?.(`${coll} 읽는 중`, i, collections.length);
       try { snap.collections[coll] = await be.fetchList(coll); }
       catch { snap.collections[coll] = []; (snap.failed ??= []).push(coll); }
       i += 1;
@@ -140,6 +149,30 @@ export async function dumpAll(be: Backend | null, onProgress?: Progress): Promis
       snap.failed = snap.failed.filter(c => c !== 'rel_secrets');
       if (!snap.failed.length) delete snap.failed;
     }
+    // Old installations may have neither char_secrets nor its rules. Ignore that failure
+    // only when an uninterrupted admin read proves every character is explicitly unlocked.
+    if (snap.failed?.includes('char_secrets') && !snap.failed.includes('characters') && reader?.role === 'admin') {
+      let after: Awaited<ReturnType<Backend['currentUser']>> = null;
+      try { after = await be.currentUser(); } catch { /* unknown identity */ }
+      const chars = snap.collections.characters;
+      const definitelyUnlocked = Array.isArray(chars) && chars.every(c =>
+        !!c && typeof c === 'object' && typeof c.id === 'string' && !!c.id
+        && (c.locked === undefined || c.locked === false)
+        && (c.lockStub === undefined || c.lockStub === false)
+        && c.lockVersion === undefined);
+      if (after?.role === 'admin' && after.id === reader.id && definitelyUnlocked) {
+        snap.failed = snap.failed.filter(c => c !== 'char_secrets');
+        if (!snap.failed.length) delete snap.failed;
+      }
+    }
+    // A successful query can still omit a locked secret; never treat that as a complete backup.
+    const secrets = new Map((snap.collections.char_secrets ?? []).map(s => [s.id, s]));
+    const incomplete = (snap.collections.characters ?? []).some(c => {
+      if (!c.locked) return false;
+      const s = secrets.get(c.id) as (ListItem & {character?: unknown; lockHash?: unknown; lockSalt?: unknown; lockAlgorithm?: unknown; original?: unknown}) | undefined;
+      return !s?.character || !s.lockHash || !s.lockSalt || s.lockAlgorithm !== 'scrypt-v1' || !s.original;
+    });
+    if (incomplete && !snap.failed?.includes('char_secrets')) (snap.failed ??= []).push('char_secrets');
     onProgress?.('설정 읽는 중');
     try { snap.settings = await be.fetchAllSettings(); }
     catch { snap.settings = {}; (snap.failed ??= []).push('설정'); }
@@ -175,6 +208,10 @@ export async function loadAll(
   getFile: (ref: string) => Promise<Blob | null>,
   onProgress?: Progress,
 ): Promise<{ files: number; items: number }> {
+  requireCompleteSnapshot(snap);
+  if ((snap.collections.characters ?? []).some(c => c.locked) || (snap.collections.char_secrets ?? []).length) {
+    throw new Error('잠금 캐릭터가 포함된 백업의 복원·이전은 안전한 서버 복원 기능이 필요합니다.');
+  }
   // ① 이미지부터 옮기고 새 주소 표를 만든다
   const knownLocal = new Set<string>();
   try { (await allBlobs()).forEach((_v, k) => knownLocal.add(k)); } catch { /* 무시 */ }

@@ -15,6 +15,8 @@ import { createPortal } from 'react-dom';
 import { BlobImg, useBlobUrl } from '@/lib/blobStore';
 import { CroppedBlobImg, CropEditor, type CropValue } from '@/components/ui/CropEditor';
 import { StarField } from '@/components/ui/StarField';
+import { CharLockGate } from '@/components/chars/CharLockGate';
+import type { LockableCharacter } from '@/lib/charLock';
 import { PixelAvatar } from '@/components/chars/PixelAvatar';
 
 import { EditableDesc, PageTitle } from '@/components/ui/PageText';
@@ -125,6 +127,10 @@ function CharDetailInner() {
     );
   }
 
+  if ((ch as LockableCharacter).locked && (ch as LockableCharacter).lockStub) {
+    return <><CharLockGate character={ch} />{isAdmin && <div className="panel" role="alert">관리자용 잠금 내용을 읽지 못했습니다. 비밀 문서 누락, 권한·서버 설정 또는 일시 오류일 수 있습니다. 설정과 연결을 확인한 후 새로고침해 주세요. <button className="btn" onClick={() => router.push(`/chars/${ch.id}/edit`)}>잠금 설정</button></div>}</>;
+  }
+
   // 탭 전환 시 정보 상단이 화면 맨 위로 오도록 스크롤 (모바일형, v1.9)
   const pickTab = (t: string) => {
     setTab(t);
@@ -137,6 +143,7 @@ function CharDetailInner() {
 
   return (
     <section className="page page-char-detail cosmic">
+      {isAdmin && (ch as LockableCharacter & {lockSecretError?: boolean}).lockSecretError && <div className="panel" role="alert">관리자용 잠금 내용을 서버에서 읽지 못했습니다. 권한·연결을 확인한 후 새로고침해 주세요.</div>}
       <StarField />
       <div className="page-head">
         {ch.pixelAvatar && <PixelAvatar value={ch.pixelAvatar} size={90} />}

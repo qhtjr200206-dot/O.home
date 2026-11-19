@@ -3,6 +3,7 @@
 // 백엔드 설정이 없으면(개발·오프라인) 브라우저 안의 로컬 계정으로 동작한다.
 import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
 import { backend, isServerMode } from './backend';
+import { clearOpenedCharacters } from './charLockClient';
 import { setCurrentUserId } from './currentUser';
 import { getSetting, setSetting } from './settingStore';
 
@@ -113,7 +114,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
     let alive = true;
     void be.currentUser().then(u => { if (alive) { setUser(u as User | null); setReady(true); } });
-    const off = be.onAuthChange(u => { if (alive) { setUser(u as User | null); setReady(true); } });
+    const off = be.onAuthChange(u => { if (alive) { clearOpenedCharacters(); setUser(u as User | null); setReady(true); } });
     return () => { alive = false; off(); };
   }, [server, be]);
 
@@ -208,6 +209,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [server, be, user]);
 
   const logout = useCallback(async () => {
+    clearOpenedCharacters();
     if (server && be) { await be.signOut(); setUser(null); return; }
     setUser(null);
     try { localStorage.removeItem(MOCK_KEY); } catch { /* 무시 */ }

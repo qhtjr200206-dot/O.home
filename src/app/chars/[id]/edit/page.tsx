@@ -7,6 +7,8 @@ import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { useAuth } from '@/lib/auth';
 import { useLocalList } from '@/lib/postStore';
 import { Character, CHAR_SEED, charGrant, charWithAu, Relation, REL_SEED , findByKey } from '@/lib/charStore';
+import { CharLockPanel } from '@/components/chars/CharLockPanel';
+import type { LockableCharacter } from '@/lib/charLock';
 import { CharEditForm } from '@/components/chars/CharEditForm';
 import { useToast } from '@/components/ui/Toast';
 import { PageTitle, EditableDesc } from '@/components/ui/PageText';
@@ -62,7 +64,8 @@ function CharEditInner() {
         <PageTitle>EDIT — {auKey ? `${ch.name} · ${auLabel}` : ch.name}</PageTitle>
         {!auKey && <EditableDesc k="chars-edit-desc" def="프로필 편집 — 변경은 [SAVE]를 눌러야 저장됩니다" />}
       </div>
-      <CharEditForm
+      {isAdmin && !auKey && <CharLockPanel id={ch.id} locked={!!(ch as LockableCharacter).locked} onDone={() => router.push(back)} />}
+      {!(ch as LockableCharacter).locked && <CharEditForm
         initial={formInitial}
         existingIds={chars.filter(c => c.id !== ch.id).flatMap(c => [c.id, ...(c.slug ? [c.slug] : [])])}
         auMode={!!auKey}
@@ -93,7 +96,7 @@ function CharEditInner() {
           }
           router.push(back);
         }}
-      />
+      />}
     </section>
   );
 }

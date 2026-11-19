@@ -1,0 +1,14 @@
+const assert=require('node:assert/strict');
+const fs=require('node:fs'), path=require('node:path'), ts=require('typescript'), Module=require('node:module');
+const file=path.join(__dirname,'../src/lib/characterLockConfig.ts');
+assert.ok(fs.existsSync(file),'server database config resolver missing');
+const mod=new Module(file,module); mod.filename=file; mod.paths=module.paths;
+mod._compile(ts.transpileModule(fs.readFileSync(file,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2020}}).outputText,file);
+const resolve=mod.exports.resolveCharacterDatabase;
+assert.equal(resolve({NEXT_PUBLIC_FIREBASE_DATABASE_ID:'named'},null),'named');
+assert.equal(resolve({}, {kind:'firebase', databaseId:'file-db'}),'file-db');
+assert.equal(resolve({NEXT_PUBLIC_FIREBASE_DATABASE_ID:'other'}, {kind:'firebase', databaseId:'file-db'}),'file-db');
+assert.throws(()=>resolve({FIREBASE_DATABASE_ID:'wrong'}, {kind:'firebase', databaseId:'file-db'}),/설정/);
+assert.equal(resolve({},null),undefined);
+assert.throws(()=>resolve({FIREBASE_DATABASE_ID:'named',NEXT_PUBLIC_FIREBASE_DATABASE_ID:'(default)'},null),/설정/);
+console.log('character database config tests passed');

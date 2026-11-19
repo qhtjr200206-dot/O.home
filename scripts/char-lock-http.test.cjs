@@ -16,7 +16,7 @@ const calls = [];
 const handlers = createCharacterLockHandlers({
   verify: async token => { if (token !== 'valid-token') throw Error('bad token'); return 'admin'; },
   change: async (...args) => { calls.push(args); },
-  open: async (...args) => ({ ok: true, character: { id: args[0], basicHtml: 'body' } }),
+  open: async (...args) => ({ ok: true, character: { id: args[0], basicHtml: 'body' }, lockVersion: 'v1' }),
 });
 const req = (body, auth) => new Request('http://localhost/api', { method: 'POST', headers: { 'content-type': 'application/json', ...(auth ? { authorization: `Bearer ${auth}` } : {}) }, body: JSON.stringify(body) });
 (async () => {
@@ -30,7 +30,25 @@ const req = (body, auth) => new Request('http://localhost/api', { method: 'POST'
   r = await handlers.lock(req({ id: '../bad', action: 'lock', password: '1234' }, 'valid-token'));
   assert.equal(r.status, 400);
   r = await handlers.unlock(req({ id: 'c1', password: '1234' }));
-  assert.equal(r.status, 200); assert.deepEqual(await r.json(), { char: { id: 'c1', basicHtml: 'body' } });
+  assert.equal(r.status, 200); assert.deepEqual(await r.json(), { char: { id: 'c1', basicHtml: 'body' }, lockVersion: 'v1' });
   assert.equal(r.headers.get('cache-control'), 'no-store');
+  const multibyte = await handlers.unlock(req({id: 'c1', password: '1234', padding: '가'.repeat(1400)}));
+  assert.equal(multibyte.status, 400, 'limit must count UTF-8 bytes, not characters');
+  for (const handler of [handlers.unlock, handlers.lock]) {
+    let pulls = 0, cancelled = false;
+    const stream = new ReadableStream({
+      pull(controller) {
+        pulls++;
+        if (pulls > 6) { controller.close(); return; }
+        controller.enqueue(new Uint8Array(2048).fill(0x61));
+      },
+      cancel() { cancelled = true; },
+    });
+    const streamed = new Request('http://localhost/api', {method: 'POST', headers: {authorization: 'Bearer valid-token', 'content-length': '1'}, body: stream, duplex: 'half'});
+    const response = await handler(streamed);
+    assert.equal(response.status, 400);
+    assert.ok(pulls <= 4, `read ${pulls} chunks after limit`);
+    assert.ok(cancelled, 'oversized stream not cancelled');
+  }
   console.log('character lock HTTP contract tests passed');
 })().catch(e => { console.error(e); process.exitCode = 1; });

@@ -10,6 +10,7 @@ import {
   Backend, BackendCheck, BackendConfig, BackendUser, ListItem, diffList, metaOf,
 } from './types';
 import { visFloorOf } from '../visFloor';
+import { firebaseReadSets, firebaseSecretUpdate } from './firebaseReadSets';
 
 type FirebaseCfg = Extract<BackendConfig, { kind: 'firebase' }>;
 
@@ -92,13 +93,8 @@ export async function createFirebaseBackend(cfg: FirebaseCfg): Promise<Backend> 
    * 정렬(orderBy)은 일부러 붙이지 않는다. where + orderBy 조합은 복합 색인을 만들어야 해서
    * 설치한 사람이 콘솔에서 색인을 추가해야 하기 때문 — 대신 받은 뒤 sort로 정렬한다.
    */
-  const readSets = async (): Promise<Cons[][]> => {
-    const u = auth.currentUser;
-    if (!u) return [[where('visibility', '==', 'public')]];
-    if (await isAdminNow()) return [[]];                    // 관리자는 전부
-    // 회원: 전체공개+회원공개, 그리고 내가 쓴 것(비공개 포함)은 따로 받아 합친다
-    return [[where('visibility', 'in', ['public', 'member'])], [where('authorId', '==', u.uid)]];
-  };
+  const readSets = (coll: string): Promise<Cons[][]> =>
+    firebaseReadSets(coll, auth.currentUser?.uid ?? null, isAdminNow, where);
 
   const listQuery = (coll: string, cs: Cons[]) =>
     (cs.length ? query(collection(db, coll), ...cs) : query(collection(db, coll)));
@@ -284,7 +280,7 @@ export async function createFirebaseBackend(cfg: FirebaseCfg): Promise<Backend> 
     },
 
     async fetchList<T extends ListItem>(coll: string): Promise<T[]> {
-      const sets = await readSets();
+      const sets = await readSets(coll);
       // 반드시 getDocsFromServer — 일반 getDocs는 로컬(오프라인) 캐시가 있으면 그걸로 조용히 성공해
       // 버린다. 실시간 구독이 한 번의 쓰기에 두 번(로컬 반영·서버 확정) 반응해 재조회가 겹칠 때
       // 낡은 캐시 결과가 방금 반영된 변경을 도로 덮어써 "새로고침해야 보임"이 되던 원인 중 하나
@@ -302,6 +298,7 @@ export async function createFirebaseBackend(cfg: FirebaseCfg): Promise<Backend> 
 
     async syncList<T extends ListItem>(coll: string, prev: T[], next: T[], uid: string | null) {
       const { inserts, updates, moves, deletes } = diffList(prev, next);
+      const updatedIds = new Set(updates.map(({ item }) => item.id));
       const ops = [...inserts, ...updates];
       // Firestore 배치는 500개 제한에 **요청 크기 10MiB 제한**도 있다 (v2.0 포크 제보 — 큰 로그
       // 본문 저장 실패). 개수(400)만 보고 끊으면 700KB짜리 본문 문서 십수 개에 10MiB를 넘어
@@ -319,8 +316,11 @@ export async function createFirebaseBackend(cfg: FirebaseCfg): Promise<Backend> 
         const batch = writeBatch(db);
         part.forEach(({ item, sort }) => {
           const { authorId, visibility, editorIds } = metaOf(item, uid, visFloorOf(coll, item));
-          batch.set(doc(db, coll, item.id), {
-            data: item, authorId, visibility, editorIds, sort, updatedAt: Date.now(),
+          const now = Date.now();
+          const secretUpdate = firebaseSecretUpdate(coll, updatedIds.has(item.id), item, { visibility, editorIds }, sort, now);
+          if (secretUpdate) batch.update(doc(db, coll, item.id), secretUpdate);
+          else batch.set(doc(db, coll, item.id), {
+            data: item, authorId, visibility, editorIds, sort, updatedAt: now,
           });
         });
         await batch.commit();
@@ -362,7 +362,7 @@ export async function createFirebaseBackend(cfg: FirebaseCfg): Promise<Backend> 
       // 조건이 두 갈래면 구독도 두 개 — fetchList와 같은 이유(질의 전체 거부 방지)
       let offs: Array<() => void> = [];
       let stopped = false;
-      void readSets().then(sets => {
+      void readSets(coll).then(sets => {
         if (stopped) return;
         offs = sets.map(cs => onSnapshot(listQuery(coll, cs), () => onChange(), () => { /* 권한 없음 등은 무시 */ }));
       });

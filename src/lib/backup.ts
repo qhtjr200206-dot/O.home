@@ -5,7 +5,7 @@
 //  · 초기화: 메뉴별로 골라서 (서버 모드면 DB에서도 지움)
 import { allBlobs, putBlobAs } from './blobStore';
 import { backend, COLLECTION_OF } from './backend';
-import { dumpAll, loadAll, collectRefs, readFileByRef, isFileUrl, type Snapshot } from './transfer';
+import { dumpAll, loadAll, collectRefs, readFileByRef, isFileUrl, requireCompleteSnapshot, type Snapshot } from './transfer';
 import { removeSetting } from './settingStore';
 
 /** 회원 계정 관련 키 — 백업/초기화에서 별도로 다룬다 */
@@ -70,6 +70,7 @@ export async function exportBackup(includeMembers: boolean): Promise<{ blob: Blo
 
   // 데이터 — 서버 모드면 DB에서, 아니면 브라우저에서
   const snap = await dumpAll(be);
+  requireCompleteSnapshot(snap);
   if (!includeMembers) {
     MEMBER_KEYS.forEach(k => { delete snap.settings[k]; });
     delete snap.members;
@@ -141,6 +142,7 @@ export async function importBackup(file: File): Promise<{ dataCount: number; blo
     createdAt: parsed.createdAt ?? new Date().toISOString(),
     collections: parsed.collections ?? {},
     settings: parsed.settings ?? {},
+    failed: parsed.failed,
   };
   // 참조 → zip 안의 파일 이름 표 (서버 백업은 blobs.json에 원래 주소를 기록해 둔다)
   const byRef = new Map<string, string>();
