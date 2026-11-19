@@ -37,11 +37,22 @@ const json = (body: unknown, status = 200) =>
 interface SecretDoc { rel?: Record<string, unknown>; lockHash?: string; lockSalt?: string; lockIter?: number }
 
 export async function POST(req: NextRequest) {
+  // Firestore 오류 등 예상 못 한 실패도 빈 500이 아니라 알 수 있는 응답으로
+  try { return await unlock(req); } catch (e) {
+    console.error('[rels/unlock] 실패', e);
+    return json({ error: '잠시 뒤 다시 시도해 주세요' }, 500);
+  }
+}
+
+async function unlock(req: NextRequest) {
   let payload: { id?: unknown; password?: unknown };
   try { payload = await req.json(); } catch { return json({ error: '잘못된 요청입니다' }, 400); }
   const id = typeof payload.id === 'string' ? payload.id : '';
   const password = typeof payload.password === 'string' ? payload.password : '';
-  if (!id || id.length > 200 || id.includes('/')) return json({ error: '잘못된 요청입니다' }, 400);
+  // Firestore 문서 id로 쓸 수 없는 값(경로 구분자·'.'/'..'·__예약__)은 미리 거른다
+  if (!id || id.length > 200 || id.includes('/') || id === '.' || id === '..' || /^__.*__$/.test(id)) {
+    return json({ error: '잘못된 요청입니다' }, 400);
+  }
   if (!password.trim() || password.length > 200) return json({ error: '비밀번호를 입력해 주세요' }, 400);
 
   try { adminApp(); } catch (e) {
