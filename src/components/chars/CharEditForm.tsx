@@ -20,6 +20,7 @@ import { fileDrop } from '@/lib/dnd';
 import { isValidSlug, slugify } from '@/lib/link';
 import { useToast } from '@/components/ui/Toast';
 import { Lightbox } from '@/components/ui/Lightbox';
+import { PixelAvatarEditor, type PixelAvatarData } from '@/components/chars/PixelAvatar';
 
 interface SpecRow { id: string; label: string; value: string }
 interface ColorRow extends ColorChip { id: string }
@@ -62,6 +63,7 @@ export function CharEditForm({ initial, onSave, onCancel, auMode, existingIds }:
   const [colorTipMode, setColorTipMode] = useState<'hex' | 'both' | 'label'>(initial?.colorTipMode ?? 'hex');
   // 색 점 테두리 (v2.0 사용자 요청) — 없음 / 1px(색 지정). 미지정이면 지금까지의 옅은 테두리
   const [colorBd, setColorBd] = useState<string | undefined>(initial?.colorBd);
+  const [pixelAvatar, setPixelAvatar] = useState<PixelAvatarData | undefined>(initial?.pixelAvatar);
   const [basicHtml, setBasicHtml] = useState(initial?.basicHtml ?? '');
   const [tabs, setTabs] = useState<CharTab[]>(initial?.tabs ?? []);
   const [arts, setArts] = useState<ArtItem[]>(() => {
@@ -107,6 +109,7 @@ export function CharEditForm({ initial, onSave, onCancel, auMode, existingIds }:
       specs: specs.filter(s => s.label.trim()).map(({ label, value }) => ({ label: label.trim(), value })),
       tabs,   // 제목이 비어도 유지 — 필터로 사라지던 버그 수정 (v1.9 사용자 지적)
       basicHtml,
+      pixelAvatar,
       visibility,
       fontId,
       nameSize,
@@ -153,6 +156,7 @@ export function CharEditForm({ initial, onSave, onCancel, auMode, existingIds }:
     <div className="write-grid">
       {/* 좌: 아트/스펙/컬러/본문/탭 */}
       <div className="panel" style={{ padding: 24, display: 'grid', gap: 12, alignContent: 'start' }}>
+        {!auMode && <PixelAvatarEditor value={pixelAvatar} onChange={setPixelAvatar} />}
         {/* 아트 목록 */}
         <label className="k-label" style={{ margin: 0 }}>
           아트 <span style={{ fontWeight: 400, color: 'var(--faint)' }}>— 첫 장이 대표 풀 아트 · 리스트 썸네일은 첫 장에서 3:4 크롭 · ⠿ 순서 변경</span>
