@@ -36,6 +36,10 @@ interface BgmCtx {
   addTrack: (title: string, desc: string, urlOrId: string) => boolean;
   removeTrack: (id: string) => void;
   setSettings: (patch: Partial<BgmSettings>) => void;
+  /** 지금 보고 있는 페이지의 테마곡 (페어 테마곡) — 있으면 플레이어가 재생목록 대신 이 곡으로
+   *  전환하고, null이 되면 원래 곡·위치로 돌아간다. 저장하지 않는 화면 상태 */
+  pageTrack: BgmTrack | null;
+  setPageTrack: (t: BgmTrack | null) => void;
 }
 
 const Ctx = createContext<BgmCtx | null>(null);
@@ -87,7 +91,13 @@ export function BgmStoreProvider({ children }: { children: React.ReactNode }) {
     setState(s => { const n = { ...s, settings: { ...s.settings, ...patch } }; persist(n); return n; });
   }, []);
 
-  return <Ctx.Provider value={{ state, setTracks, addTrack, removeTrack, setSettings }}>{children}</Ctx.Provider>;
+  const [pageTrack, setPageTrack] = useState<BgmTrack | null>(null);
+
+  return (
+    <Ctx.Provider value={{ state, setTracks, addTrack, removeTrack, setSettings, pageTrack, setPageTrack }}>
+      {children}
+    </Ctx.Provider>
+  );
 }
 
 export function useBgm(): BgmCtx {
