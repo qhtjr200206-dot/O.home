@@ -1,0 +1,25 @@
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+const ts = require('typescript');
+const Module = require('node:module');
+const file = path.join(__dirname, '../src/lib/backend/firebaseReadSets.ts');
+assert.ok(fs.existsSync(file), 'secret-specific Firebase query selection not implemented');
+const m = new Module(file,module); m.filename=file; m.paths=module.paths;
+m._compile(ts.transpileModule(fs.readFileSync(file,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2020}}).outputText,file);
+const {firebaseReadSets, firebaseSecretUpdate} = m.exports;
+const secretUpdate = firebaseSecretUpdate('rel_secrets', true, {id:'r',content:'updated'}, {authorId:'admin',visibility:'private',editorIds:[]}, 3, 123);
+assert.deepEqual(secretUpdate, {data:{id:'r',content:'updated'},visibility:'private',editorIds:[],sort:3,updatedAt:123});
+assert.equal(firebaseSecretUpdate('posts', true, {id:'r'}, {}, 0, 0), null);
+assert.equal(firebaseSecretUpdate('rel_secrets', false, {id:'r'}, {}, 0, 0), null);
+const where = (field, op, value) => ({field, op, value});
+(async()=>{
+  const query = (coll,uid,admin) => firebaseReadSets(coll,uid,async()=>admin,where);
+  assert.deepEqual(await query('rel_secrets',null,false), []);
+  assert.deepEqual(await query('rel_secrets','author',false), [[where('authorId','==','author')]]);
+  assert.deepEqual(await query('rel_secrets','admin',true), [[]]);
+  assert.deepEqual(await query('posts',null,false), [[where('visibility','==','public')]]);
+  assert.deepEqual(await query('posts','author',false), [[where('visibility','in',['public','member'])],[where('authorId','==','author')]]);
+  assert.deepEqual(await query('posts','admin',true), [[]]);
+  console.log('Firebase author-only secret query selection passed');
+})().catch(e=>{console.error(e);process.exitCode=1});
