@@ -11,6 +11,7 @@ import {
 } from './types';
 import { visFloorOf } from '../visFloor';
 import { firebaseReadSets, firebaseSecretUpdate } from './firebaseReadSets';
+import { filterLockedCharacterMoves } from './characterSort';
 
 type FirebaseCfg = Extract<BackendConfig, { kind: 'firebase' }>;
 
@@ -298,6 +299,12 @@ export async function createFirebaseBackend(cfg: FirebaseCfg): Promise<Backend> 
 
     async syncList<T extends ListItem>(coll: string, prev: T[], next: T[], uid: string | null) {
       const { inserts, updates, moves, deletes } = diffList(prev, next);
+      // 잠금 항목이 있으면 비관리자의 편집·삭제에서 기존 sort를 보존한다.
+      // 저장 전에 판정해 지원하지 않는 순서 변경이 일부만 반영되지 않게 한다.
+      const hasLocked = coll === 'characters' && next.some(item => item.locked === true);
+      const admin = hasLocked ? await isAdminNow() : false;
+      const preserveCharacterSort = hasLocked && !admin;
+      const safeMoves = hasLocked ? filterLockedCharacterMoves(coll, moves, next, admin, prev) : moves;
       const updatedIds = new Set(updates.map(({ item }) => item.id));
       const ops = [...inserts, ...updates];
       // Firestore 배치는 500개 제한에 **요청 크기 10MiB 제한**도 있다 (v2.0 포크 제보 — 큰 로그
@@ -319,7 +326,10 @@ export async function createFirebaseBackend(cfg: FirebaseCfg): Promise<Backend> 
           const now = Date.now();
           const secretUpdate = firebaseSecretUpdate(coll, updatedIds.has(item.id), item, { visibility, editorIds }, sort, now);
           if (secretUpdate) batch.update(doc(db, coll, item.id), secretUpdate);
-          else batch.set(doc(db, coll, item.id), {
+          else if (preserveCharacterSort && updatedIds.has(item.id)) {
+            // 정렬값과 원래 작성자를 유지하고 수정된 내용만 교체한다.
+            batch.update(doc(db, coll, item.id), {data: item, visibility, editorIds, updatedAt: now});
+          } else batch.set(doc(db, coll, item.id), {
             data: item, authorId, visibility, editorIds, sort, updatedAt: now,
           });
         });
@@ -328,7 +338,7 @@ export async function createFirebaseBackend(cfg: FirebaseCfg): Promise<Backend> 
       const chunk = <X,>(arr: X[], n: number) =>
         Array.from({ length: Math.ceil(arr.length / n) }, (_, i) => arr.slice(i * n, i * n + n));
       // 자리만 바뀐 항목 — sort만 고친다 (본문까지 다시 보내지 않게, 위 diffList 주석 참조)
-      for (const part of chunk(moves, 400)) {
+      for (const part of chunk(safeMoves, 400)) {
         const batch = writeBatch(db);
         part.forEach(({ id, sort }) => batch.update(doc(db, coll, id), { sort, updatedAt: Date.now() }));
         await batch.commit();
