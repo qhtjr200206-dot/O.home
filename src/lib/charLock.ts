@@ -20,6 +20,16 @@ type Secret = {
   lockIter?: number;
 };
 
+export function mergeCharacters(pub: Partial<LockableCharacter>[], sec: Secret[]): LockableCharacter[] {
+  const secrets = new Map(sec.filter(s => s.character && s.lockHash && s.lockSalt).map(s => [s.id, s]));
+  return pub.map(c => {
+    if (!c.locked) return c as LockableCharacter;
+    const secret = c.id ? secrets.get(c.id) : undefined;
+    if (secret?.character) return { ...secret.character, id: c.id!, visibility: c.visibility!, locked: true, lockHash: secret.lockHash, lockSalt: secret.lockSalt, lockIter: secret.lockIter };
+    return { sub: '', color: '', colors: [], specs: [], tabs: [], basicHtml: '', ...c, lockStub: true } as LockableCharacter;
+  });
+}
+
 /** Only an explicit allowlist may be persisted to the publicly readable document. */
 export function splitCharacters(items: LockableCharacter[]): { pub: Partial<LockableCharacter>[]; sec: Secret[] } {
   const pub: Partial<LockableCharacter>[] = [];

@@ -38,4 +38,20 @@ const stubResult = splitCharacters([pub[0]]);
 assert.deepEqual(stubResult.sec, [{ id: 'c1', keep: true }]);
 const unlocked = { ...character, locked: false };
 assert.deepEqual(splitCharacters([unlocked]), { pub: [unlocked], sec: [] });
-console.log('character lock split tests passed');
+const merged = mod.exports.mergeCharacters(pub, sec);
+assert.equal(merged[0].basicHtml, 'private-body');
+assert.equal(merged[0].lockHash, 'private-hash');
+const missing = mod.exports.mergeCharacters(pub, []);
+assert.equal(missing[0].lockStub, true);
+assert.equal(missing[0].basicHtml, '');
+assert.deepEqual(missing[0].tabs, []);
+const rules = fs.readFileSync(path.join(__dirname, '../firebase/firestore.rules'), 'utf8');
+const embedded = fs.readFileSync(path.join(__dirname, '../src/lib/firebaseRules.ts'), 'utf8');
+for (const [name, text] of [['file', rules], ['embedded', embedded]]) {
+  assert.match(text, /match \/char_secrets\/\{[^}]+\}\s*\{\s*allow read, write: if isAdmin\(\);/, `${name}: character secrets must be admin-only`);
+  assert.match(text, /function safeCharacterWrite\(/, `${name}: locked character writes must be guarded`);
+  assert.match(text, /keys\(\)\.hasOnly\(\[\s*'id', 'name', 'own'/, `${name}: public locked character allowlist missing`);
+  assert.match(text, /safeCharacterWrite\(coll\)/, `${name}: write guard must be used`);
+  assert.match(text, /safeCharacterUpdate\(coll\)/, `${name}: stale clients must not unlock`);
+}
+console.log('character lock split, merge, and rule tests passed');

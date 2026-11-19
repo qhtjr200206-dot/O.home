@@ -45,6 +45,23 @@ service cloud.firestore {
       ];
     }
 
+    // 이전 클라이언트의 오래된 전체 문서 저장이 잠금을 풀거나 본문을 공개하지 못한다.
+    // 잠금 해제는 향후 서버 Admin SDK의 원자적 작업으로만 수행해야 한다.
+    function characterLocked(data) {
+      return data.keys().hasAny(['locked']) && data.locked == true;
+    }
+    function safeCharacterWrite(coll) {
+      return coll != 'characters' || !characterLocked(request.resource.data.data)
+        || (isAdmin() && request.resource.data.data.keys().hasOnly([
+          'id', 'name', 'own', 'visibility', 'slug', 'secId', 'thumbId',
+          'thumbCrop', 'thumbClass', 'locked', 'lockStub'
+        ]));
+    }
+    function safeCharacterUpdate(coll) {
+      return coll != 'characters' || !characterLocked(resource.data.data)
+        || characterLocked(request.resource.data.data);
+    }
+
     // ── 소유자(관리자) 지정 — 아직 없을 때 딱 한 번 ──────────────
     match /meta/owner {
       allow read: if true;
@@ -65,6 +82,11 @@ service cloud.firestore {
       allow write: if isAdmin();
     }
 
+    // 잠금 캐릭터의 비밀 문서는 관리자만 직접 접근한다. Admin SDK는 규칙을 우회한다.
+    match /char_secrets/{docId} {
+      allow read, write: if isAdmin();
+    }
+
     // ── 콘텐츠 ─────────────────────────────────────────────────
     match /{coll}/{docId} {
       // 읽기: 전체공개 / 멤버공개(로그인) / 내가 쓴 것 / 관리자
@@ -78,7 +100,7 @@ service cloud.firestore {
       // 쓰기: 로그인 회원 — 방명록·댓글은 비로그인 방문자도 남길 수 있음(닉네임+비밀번호 방식)
       // notifications: 손님 댓글·방명록이 관리자에게 알림을 남길 수 있어야 한다 (v2.0) —
       // 행 주인(authorId)은 받는 사람이라 읽기·수정·삭제는 받는 사람·관리자만 (아래 공통 규칙)
-      allow create: if isContent(coll) && (signedIn() || coll in ['guestbook', 'comments', 'notifications']);
+      allow create: if isContent(coll) && safeCharacterWrite(coll) && (signedIn() || coll in ['guestbook', 'comments', 'notifications']);
 
       // 수정·삭제: 작성자 본인 · 편집 권한을 받은 회원 · 관리자
       // 댓글은 글과 따로 저장되므로(v2.0) 댓글을 달 때 글을 수정할 필요가 없다 —
@@ -87,7 +109,13 @@ service cloud.firestore {
       // 지우는 것은 관리자만 — 방명록의 게스트 글과 같은 규칙이다.
       // editorIds: 캐릭터에 「편집까지」 권한을 준 회원 (v2.0). grants는 객체 배열이라
       // 규칙에서 훑을 수 없어, 저장할 때 회원 id만 뽑아 둔 평평한 배열을 본다.
-      allow update, delete: if isContent(coll)
+      allow update: if isContent(coll) && safeCharacterWrite(coll) && safeCharacterUpdate(coll)
+        && signedIn()
+        && (resource.data.authorId == request.auth.uid
+            || isAdmin()
+            || (resource.data.keys().hasAny(['editorIds'])
+                && request.auth.uid in resource.data.editorIds));
+      allow delete: if isContent(coll)
         && signedIn()
         && (resource.data.authorId == request.auth.uid
             || isAdmin()

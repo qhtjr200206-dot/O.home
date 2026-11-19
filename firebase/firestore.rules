@@ -39,6 +39,23 @@ service cloud.firestore {
       ];
     }
 
+    // 이전 클라이언트의 오래된 전체 문서 저장이 잠금을 풀거나 본문을 공개하지 못한다.
+    // 잠금 해제는 향후 서버 Admin SDK의 원자적 작업으로만 수행해야 한다.
+    function characterLocked(data) {
+      return data.keys().hasAny(['locked']) && data.locked == true;
+    }
+    function safeCharacterWrite(coll) {
+      return coll != 'characters' || !characterLocked(request.resource.data.data)
+        || (isAdmin() && request.resource.data.data.keys().hasOnly([
+          'id', 'name', 'own', 'visibility', 'slug', 'secId', 'thumbId',
+          'thumbCrop', 'thumbClass', 'locked', 'lockStub'
+        ]));
+    }
+    function safeCharacterUpdate(coll) {
+      return coll != 'characters' || !characterLocked(resource.data.data)
+        || characterLocked(request.resource.data.data);
+    }
+
     // ── 소유자(관리자) 지정 — 아직 없을 때 딱 한 번 ──────────────
     match /meta/owner {
       allow read: if true;
@@ -59,6 +76,11 @@ service cloud.firestore {
       allow write: if isAdmin();
     }
 
+    // 잠금 캐릭터의 비밀 문서는 관리자만 직접 접근한다. Admin SDK는 규칙을 우회한다.
+    match /char_secrets/{docId} {
+      allow read, write: if isAdmin();
+    }
+
     // ── 콘텐츠 ─────────────────────────────────────────────────
     match /{coll}/{docId} {
       // 읽기: 전체공개 / 멤버공개(로그인) / 내가 쓴 것 / 관리자
@@ -70,10 +92,12 @@ service cloud.firestore {
       );
 
       // 쓰기: 로그인 회원 — 방명록만 비로그인 방문자도 남길 수 있음(닉네임+비밀번호 방식)
-      allow create: if isContent(coll) && (signedIn() || coll == 'guestbook');
+      allow create: if isContent(coll) && safeCharacterWrite(coll) && (signedIn() || coll == 'guestbook');
 
-      // 수정·삭제: 작성자 본인 또는 관리자
-      allow update, delete: if isContent(coll)
+      // 삭제는 별도 — request.resource가 없는 delete에서 접근하지 않는다.
+      allow delete: if isContent(coll) && signedIn()
+        && (resource.data.authorId == request.auth.uid || isAdmin());
+      allow update: if isContent(coll) && safeCharacterWrite(coll) && safeCharacterUpdate(coll)
         && signedIn()
         && (resource.data.authorId == request.auth.uid || isAdmin());
     }
