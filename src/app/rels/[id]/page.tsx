@@ -33,6 +33,7 @@ import { useToast } from '@/components/ui/Toast';
 import { PageTitle } from '@/components/ui/PageText';
 import { RelLockGate } from '@/components/rels/RelLockGate';
 import { needsUnlock, notifyRelLockChanged } from '@/lib/relLock';
+import { useBgm } from '@/lib/bgmStore';
 
 /** 전신 이미지 — 비율 유지, 하단 정렬, 크기 %는 자관 수정 미리보기에서 지정 (v1.9) */
 // 전신 그림자는 「그림자 직접 지정」의 색·강도를 따른다 (v2.0 사용자 요청) — 자관명 그림자와 같은 설정
@@ -399,6 +400,22 @@ export default function RelDetailPage() {
     setPageBg({ g1: bgG1 ?? '#2b3038', g2: bgG2 ?? '#121418', angle: bgAngle ?? 180 });
     return () => setPageBg(null);
   }, [bgG1, bgG2, bgAngle, setPageBg]);
+
+  /* 페어 테마곡 — 이 페이지에 있는 동안 사이트 BGM을 이 곡으로 바꾸고, 나가면 원래 곡으로 (BgmPlayer).
+     아래 화면 분기와 같은 조건으로, 열람 권한이 없거나 비밀번호를 풀기 전에는 곡을 넘기지 않는다
+     (잠금 자관의 껍데기에는 애초에 곡 정보가 없다 — relStub) */
+  const { setPageTrack } = useBgm();
+  const songOpen = !!rel && !rel.lockStub
+    && !(rel.visibility === 'private' && !isAdmin) && !(rel.visibility === 'member' && !user)
+    && !(rel.locked && !authReady) && !needsUnlock(rel, isAdmin);
+  const songVid = songOpen ? rel?.themeSong : undefined;
+  const songTitle = rel?.themeSongTitle?.trim() || `${rel?.name ?? ''} 테마곡`;
+  const songKey = rel?.id;
+  useEffect(() => {
+    if (!songVid) return;
+    setPageTrack({ id: `rel-theme:${songKey}`, title: songTitle, desc: 'PAIR THEME', videoId: songVid });
+    return () => setPageTrack(null);
+  }, [songVid, songTitle, songKey, setPageTrack]);
 
   // 삭제된 캐릭터를 가리키는 멤버 자동 정리 — 카드도 안 뜨고 [＋ 멤버 추가]도
   // 안 나오는 유령 슬롯이 남지 않게 (캐릭터 삭제 기능 도입에 따른 정합성 보정)

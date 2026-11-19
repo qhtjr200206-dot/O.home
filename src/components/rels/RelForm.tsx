@@ -8,6 +8,7 @@ import { ColorField } from '@/components/ui/ColorField';
 import { isValidSlug, slugify } from '@/lib/link';
 import { CP_LABEL } from '@/lib/relqStore';
 import { newId } from '@/lib/postStore';
+import { parseVideoId } from '@/lib/bgmStore';
 import { useFonts, deVarFamily } from '@/lib/fontStore';
 import { putBlob, getBlob, useBlobUrl } from '@/lib/blobStore';
 import { KInput, KSelect, KCheck, KStep } from '@/components/ui/Kit';
@@ -58,6 +59,8 @@ export interface RelFormValue {
   nameBolds?: Record<string, boolean>;                          // 멤버 카드 이름 볼드 (v2.0 — 기본 켜짐)
   quoteColors?: Record<string, { fg?: string; mark?: string }>; // 히어로 대사 글씨/따옴표색 (페어, v1.9)
   fullFront?: string;                          // 앞에 보일 캐릭터 id
+  themeSong?: string;        // 페어 테마곡 — 유튜브 영상 ID (자관 전체 설정, AU 폼에는 없음)
+  themeSongTitle?: string;   // 테마곡 제목 (비우면 「자관명 테마곡」)
   auName?: string;           // AU별 자관명 (v2.0 사용자 요청 — AU 편집일 때만)
   qaHide?: boolean;          // 문답 답변 숨기기 (v2.0 사용자 요청)
   pickedCharIds: string[];   // 등록 시 연동할 내 캐릭터 (수정 모드에선 빈 배열)
@@ -267,6 +270,9 @@ export function RelForm({ initial, auId, myChars, memberNames, existingIds, onSa
   const [auName, setAuName] = useState(auObj?.name ?? '');
   // 문답 답변 가리기 (v2.0 사용자 요청) — 질문은 그대로 두고 답변 내용만
   const [qaHide, setQaHide] = useState(!!initial?.qaHide);
+  // 페어 테마곡 — 이 페이지에 들어오면 BGM이 이 곡으로 바뀐다. 유튜브 주소나 영상 ID
+  const [themeSong, setThemeSong] = useState(initial?.themeSong ? `https://youtu.be/${initial.themeSong}` : '');
+  const [themeSongTitle, setThemeSongTitle] = useState(initial?.themeSongTitle ?? '');
   // 전신 앞뒤도 AU별 (v2.0) — AU에서 바꾼 앞뒤가 원본·다른 AU를 건드리지 않게
   const [fullFront, setFullFront] = useState<string | undefined>(auObj?.fullFront ?? initial?.fullFront);
 
@@ -307,6 +313,8 @@ export function RelForm({ initial, auId, myChars, memberNames, existingIds, onSa
       if (!isValidSlug(slug)) { toast('주소는 영문 소문자·숫자·하이픈만 쓸 수 있습니다'); return; }
       if (existingIds?.includes(slug)) { toast('이미 사용 중인 주소입니다 — 다른 주소를 입력해 주세요'); return; }
     }
+    const songVid = themeSong.trim() ? parseVideoId(themeSong) : undefined;
+    if (songVid === null) { toast('테마곡은 유튜브 주소나 영상 ID로 넣어 주세요'); return; }
     const artIds = await Promise.all(arts.map(a => (a.file ? putBlob(a.file) : Promise.resolve(a.ref!))));
     onSave({
       // 수정에서 정한 주소는 별명으로 (v2.0) — 신규는 rels/new가 이 값을 id로 쓴다
@@ -340,6 +348,8 @@ export function RelForm({ initial, auId, myChars, memberNames, existingIds, onSa
       cp,
       auName: auObj ? auName.trim() : undefined,
       qaHide: qaHide || undefined,
+      themeSong: songVid,
+      themeSongTitle: songVid && themeSongTitle.trim() ? themeSongTitle.trim() : undefined,
       fulls: pairMembers.length
         ? Object.fromEntries(await Promise.all(pairMembers.map(async m => {
           const d = fulls[m.charId];
@@ -767,6 +777,27 @@ export function RelForm({ initial, auId, myChars, memberNames, existingIds, onSa
                   : '이 페이지도 홈페이지 테마를 그대로 사용합니다'}
               </p>
             </div>
+            {/* 페어 테마곡 — 상세에 들어오면 사이트 BGM이 이 곡으로 바뀌고, 나가면 원래 곡으로.
+                자관 전체 설정이라 AU 편집에서는 두지 않는다 */}
+            {!auObj && (
+              <div>
+                <label className="k-label">테마곡</label>
+                <div style={{ display: 'grid', gap: 6 }}>
+                  <KInput placeholder="유튜브 주소 또는 영상 ID (비우면 사이트 BGM 그대로)" value={themeSong}
+                    onChange={e => setThemeSong(e.target.value)} aria-label="테마곡 유튜브 주소" />
+                  {themeSong.trim() && (
+                    <KInput placeholder={`곡 제목 (비우면 「${name.trim() || '자관명'} 테마곡」)`} value={themeSongTitle}
+                      onChange={e => setThemeSongTitle(e.target.value)} aria-label="테마곡 제목" />
+                  )}
+                </div>
+                <p className="hint" style={{ margin: '5px 0 0', lineHeight: 1.6 }}>
+                  {themeSong.trim() && !parseVideoId(themeSong)
+                    ? <b style={{ color: 'var(--accent)' }}>유튜브 주소를 알아볼 수 없습니다</b>
+                    : <>이 페이지에 들어오면 BGM이 이 곡으로 바뀌고, 나가면 듣던 곡으로 돌아갑니다.
+                      방문자가 BGM을 멈춰 두었으면 곡만 바꿔 두고 저절로 틀지 않습니다.</>}
+                </p>
+              </div>
+            )}
             {/* 문답 답변 가리기 (v2.0 사용자 요청) — 방문자에게 답변 내용을 안 보이게.
                 자관 전체 설정이라 AU 편집에서는 두지 않는다 */}
             {!auObj && (
