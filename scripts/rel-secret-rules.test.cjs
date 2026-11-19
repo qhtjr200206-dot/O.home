@@ -59,4 +59,11 @@ async function run(rulesFile, installation) {
     console.log(`${rulesFile}: Firestore authorization cases passed`);
   } finally { await env.cleanup(); }
 }
-(async () => { await run('firebase/firestore.rules', true); await run('firebase/firestore.production.rules', false); })().catch(e => { console.error(e); process.exitCode = 1; });
+const test = require('node:test');
+test('Firestore relation secret permissions (emulator)', {
+  skip: process.env.FIRESTORE_EMULATOR_HOST ? false : 'Firestore emulator not running; use firebase emulators:exec',
+}, async () => {
+  if (!/^(127\.0\.0\.1|localhost):\d+$/.test(process.env.FIRESTORE_EMULATOR_HOST)) throw new Error('Firestore emulator must use a loopback host');
+  await run('firebase/firestore.rules', true);
+  await run('firebase/firestore.production.rules', false);
+});
