@@ -34,6 +34,7 @@ import { PageTitle } from '@/components/ui/PageText';
 import { RelLockGate } from '@/components/rels/RelLockGate';
 import { needsUnlock, notifyRelLockChanged } from '@/lib/relLock';
 import { useBgm } from '@/lib/bgmStore';
+import { RelPoemCard } from '@/components/rels/RelPoemCard';
 
 /** 전신 이미지 — 비율 유지, 하단 정렬, 크기 %는 자관 수정 미리보기에서 지정 (v1.9) */
 // 전신 그림자는 「그림자 직접 지정」의 색·강도를 따른다 (v2.0 사용자 요청) — 자관명 그림자와 같은 설정
@@ -1122,6 +1123,10 @@ export default function RelDetailPage() {
           </div>
         </div>
       )}
+
+      {/* 오늘의 시 (사용자 요청) — Gemini가 고른 실존 시 구절. 위의 열람 분기(공개범위·잠금)를 지난 뒤에만
+          그려지므로 잠금 자관은 비밀번호를 풀기 전엔 요청조차 하지 않는다 (RelPoemCard) */}
+      <RelPoemCard rel={rel} chars={chars} isAdmin={isAdmin} fontFamily={familyOf(rel.bodyFontId)} />
 
       {/* 타임라인 / 페어 문답 탭 (v1.8) */}
       <div className={`panel timeline ${!isDuo ? 'multi' : ''}`} style={{ fontFamily: familyOf(auBodyFont) }}>
