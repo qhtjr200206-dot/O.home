@@ -15,6 +15,7 @@ import { createPortal } from 'react-dom';
 import { BlobImg, useBlobUrl } from '@/lib/blobStore';
 import { CroppedBlobImg, CropEditor, type CropValue } from '@/components/ui/CropEditor';
 import { StarField } from '@/components/ui/StarField';
+import { PixelAvatar } from '@/components/chars/PixelAvatar';
 
 import { EditableDesc, PageTitle } from '@/components/ui/PageText';
 import { useSectionTitle } from '@/lib/sectionStore';
@@ -138,6 +139,7 @@ function CharDetailInner() {
     <section className="page page-char-detail cosmic">
       <StarField />
       <div className="page-head">
+        {ch.pixelAvatar && <PixelAvatar value={ch.pixelAvatar} size={90} />}
         {/* 제목 자리는 메뉴 이름 — 클릭 시 목록 복귀. 캐릭터 이름은 우측 프로필 패널에 크게 표시 */}
         <PageTitle href={tt.href}>{tt.title}</PageTitle>
         {/* 캐릭터별로 별도 저장 — 키에 캐릭터 id 포함 */}
