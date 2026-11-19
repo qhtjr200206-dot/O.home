@@ -1,0 +1,13 @@
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+const root = path.join(__dirname, '..');
+const pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
+assert.ok(pkg.devDependencies?.['@firebase/rules-unit-testing'], 'Firestore rules test SDK must be a devDependency');
+const configPath = path.join(root, 'firebase.emulator.json');
+assert.ok(fs.existsSync(configPath), 'repository emulator configuration missing');
+const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+assert.equal(config.firestore.rules, 'firebase/firestore.rules');
+assert.equal(config.emulators.firestore.host, '127.0.0.1');
+assert.equal(config.emulators.firestore.port, 18184);
+console.log('rules test dependency and local emulator configuration passed');
