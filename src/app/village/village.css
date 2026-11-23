@@ -1,0 +1,54 @@
+/* 마을(웹게임) 전용 스타일 — 사이트 테마 변수(--ink, --line, --accent)를 그대로 쓴다 */
+.village-page{color:var(--ink)}
+.village-card{background:rgba(255,255,255,.94);color:var(--ink);border:1px solid var(--line);border-radius:14px;padding:14px;box-shadow:0 4px 18px rgba(0,0,0,.08)}
+.village-card h3{margin:0 0 8px;font-size:15px}
+.village-muted{color:var(--sub)}
+.village-chip{display:inline-flex;align-items:center;gap:6px;padding:6px 10px;border-radius:999px;border:1px solid var(--line);background:#fff;color:var(--ink);cursor:pointer;font:inherit;font-size:13px;min-height:36px}
+.village-chip.on{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 12%,#fff);font-weight:600}
+.village-chip input{accent-color:var(--accent)}
+.village-2col{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+.village-rooms{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px}
+.village-room{width:100%;display:grid;gap:4px;justify-items:start;text-align:left;padding:14px;border-radius:14px;border:1px solid var(--line);background:rgba(255,255,255,.94);color:var(--ink);cursor:pointer;font:inherit;min-height:110px}
+.village-room:hover,.village-room:focus-visible{border-color:var(--accent);outline:none;box-shadow:0 0 0 3px color-mix(in srgb,var(--accent) 25%,transparent)}
+.village-room-icon{font-size:28px}
+.village-layout{display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:12px;align-items:start}
+.village-stage{position:relative;min-width:0}
+.village-side{display:grid;gap:12px;min-width:0}
+.village-topbar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px;background:rgba(255,255,255,.94);color:var(--ink);padding:8px 10px;border-radius:12px;border:1px solid var(--line)}
+.village-badge{font-size:12px;padding:3px 8px;border-radius:999px;background:#f1f1f4;color:var(--ink)}
+.village-canvas-wrap{position:relative;width:100%}
+.village-zoom{position:absolute;right:8px;top:8px;display:grid;gap:6px}
+.village-zoom button{width:40px;height:40px;border-radius:10px;border:1px solid rgba(255,255,255,.4);background:rgba(20,22,30,.7);color:#fff;font-size:18px;cursor:pointer}
+.village-toast{position:absolute;left:50%;top:64px;transform:translateX(-50%);background:rgba(20,22,30,.88);color:#fff;padding:8px 14px;border-radius:10px;font-size:13px;max-width:90%;text-align:center;z-index:2}
+.village-row{width:100%;display:flex;align-items:center;gap:6px;padding:6px 8px;border-radius:8px;border:1px solid transparent;background:transparent;color:var(--ink);cursor:pointer;font:inherit;font-size:13px;text-align:left}
+.village-row.on,.village-row:hover{background:#f4f4f7;border-color:var(--line)}
+.village-gift{display:grid;justify-items:center;gap:2px;padding:8px 4px;border-radius:10px;border:1px solid var(--line);background:#fff;color:var(--ink);cursor:pointer;font:inherit;font-size:12px}
+.village-gift:hover{border-color:var(--accent)}
+.village-msg{display:grid;gap:8px;padding:10px;border-radius:12px}
+.village-msg select,.village-msg textarea{font:inherit;padding:6px 8px;border-radius:8px;border:1px solid var(--line);width:100%;box-sizing:border-box}
+.village-msg-to{display:grid;gap:4px;font-size:13px}
+.village-msg-thread{display:grid;gap:8px;max-height:240px;overflow:auto;padding:4px}
+.village-msg-empty{margin:0;opacity:.7;font-size:13px}
+.village-msg-past{background:#f6eedb;background-image:repeating-linear-gradient(#f6eedb 0 23px,#e6d7b6 23px 24px);font-family:'Nanum Myeongjo',serif;color:#4a3826}
+.village-msg-past .village-msg-item{background:#fffaf0;border:1px solid #e0cfa8;border-radius:4px;padding:10px 12px;box-shadow:2px 2px 0 #e7d7b3}
+.village-msg-past .village-letter-head{font-weight:700;margin-bottom:4px}
+.village-msg-past .village-letter-sign{text-align:right;font-size:12px;opacity:.8}
+.village-msg-past p{margin:0;white-space:pre-wrap}
+.village-msg-modern{background:#eef2f8;border:6px solid #23262e;border-radius:22px}
+.village-msg-modern .village-msg-item{display:grid;justify-items:start;gap:2px}
+.village-msg-modern .village-msg-item.me{justify-items:end}
+.village-phone-bubble{display:inline-block;max-width:85%;padding:7px 11px;border-radius:16px 16px 16px 4px;background:#fff;white-space:pre-wrap;font-size:14px}
+.village-msg-modern .me .village-phone-bubble{background:#ffe066;border-radius:16px 16px 4px 16px}
+.village-msg-sf{background:#071a12;color:#6cff9f;border:1px solid #1c5e3a;font-family:ui-monospace,Consolas,monospace;box-shadow:inset 0 0 18px rgba(80,255,150,.15)}
+.village-msg-sf code{white-space:pre-wrap;font-size:12.5px;color:#6cff9f}
+.village-msg-sf select,.village-msg-sf textarea{background:#0b2619;color:#9dffbf;border-color:#1c5e3a}
+.village-portrait{display:flex;gap:12px;align-items:center}
+.village-portrait svg{background:linear-gradient(#f6f3ff,#e9eef8);border-radius:12px;border:1px solid var(--line)}
+.village-zoom{z-index:1}
+@media (max-width: 900px){
+  .village-layout{grid-template-columns:1fr}
+}
+@media (max-width: 480px){
+  .village-2col{grid-template-columns:1fr}
+  .village-card{padding:11px}
+}

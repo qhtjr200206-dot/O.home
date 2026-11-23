@@ -86,6 +86,14 @@ async function fileConfig(): Promise<BackendConfig | null> {
 /** 최종 설정 — 앱 시작 시 한 번 확정하고 이후에는 캐시 */
 export async function loadServerConfig(): Promise<BackendConfig | null> {
   if (loaded) return cache;
+  // 로컬 격리 시험 전용(개발 서버에서만): 운영 DB 대신 Firebase 에뮬레이터의 demo 프로젝트에 붙는다.
+  // 운영 빌드(NODE_ENV=production)에서는 이 분기가 통째로 사라진다.
+  if (process.env.NODE_ENV !== 'production' && process.env.NEXT_PUBLIC_OHOME_EMULATOR) {
+    cache = { kind: 'firebase', apiKey: 'demo-key', authDomain: 'demo-ohome-village.firebaseapp.com', projectId: 'demo-ohome-village', storageBucket: 'demo-ohome-village.appspot.com', appId: '1:0:web:demo' };
+    source = 'env';
+    loaded = true;
+    return cache;
+  }
   const file = await fileConfig();
   const local = file ? null : localConfig();
   const env = file || local ? null : envConfig();

@@ -48,6 +48,15 @@ export async function createFirebaseBackend(cfg: FirebaseCfg): Promise<Backend> 
     }
   })();
   const storage = stMod.getStorage(app);
+  // 로컬 격리 시험 전용(개발 서버 + demo 프로젝트에서만) — 운영 빌드에서는 사라진다
+  if (process.env.NODE_ENV !== 'production' && process.env.NEXT_PUBLIC_OHOME_EMULATOR && cfg.projectId.startsWith('demo-')) {
+    const [authHost, fsHost] = process.env.NEXT_PUBLIC_OHOME_EMULATOR.split(',');
+    try {
+      authMod.connectAuthEmulator(auth, `http://${authHost}`, { disableWarnings: true });
+      const [h, p] = fsHost.split(':');
+      fsMod.connectFirestoreEmulator(db, h, Number(p));
+    } catch { /* 이미 연결됨 */ }
+  }
 
   const {
     collection, doc, getDoc, getDocs, getDocsFromServer, setDoc, deleteDoc, query, where, onSnapshot, writeBatch, limit,

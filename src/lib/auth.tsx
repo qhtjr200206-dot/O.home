@@ -210,6 +210,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const logout = useCallback(async () => {
     clearOpenedCharacters();
+    // 방 토큰도 탭에서 지운다(서버는 uid로 묶어 두지만, 로그아웃 뒤 남기지 않음)
+    try {
+      for (let i = sessionStorage.length - 1; i >= 0; i--) {
+        const k = sessionStorage.key(i);
+        if (k?.startsWith('ohome.village.token.')) sessionStorage.removeItem(k);
+      }
+    } catch { /* 무시 */ }
     if (server && be) { await be.signOut(); setUser(null); return; }
     setUser(null);
     try { localStorage.removeItem(MOCK_KEY); } catch { /* 무시 */ }
