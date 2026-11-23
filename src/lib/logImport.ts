@@ -51,7 +51,8 @@ export function listenForLogImport(onLog: (p: ImportedLog) => void): () => void 
   const source = new URLSearchParams(window.location.search).get('import');
   const opener = window.opener as Window | null;
   if (!source || !opener) return () => {};
-  const allowed = allowedImportOrigins();
+  // 이 사이트 자신(도구 > 로그 편집기)도 보낼 수 있다 — 같은 출처라 따로 등록할 필요가 없다
+  const allowed = [...allowedImportOrigins(), window.location.origin];
   let done = false;
 
   const onMsg = (e: MessageEvent) => {

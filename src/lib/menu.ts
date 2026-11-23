@@ -27,6 +27,7 @@ export const FEATURES: { href: string; label: string }[] = [
   { href: '/diary', label: '다이어리' },
   { href: '/threads', label: '감상타래' },
   { href: '/memo', label: '메모장' },
+  { href: '/tools/log-editor', label: '로그 편집기' },   // 도구 — 세션 로그 판정 정리
   { href: '/guest', label: '방명록' },
   { href: '/intro', label: '소개' },
   { href: '/cover', label: '커버 메이커' },   // 초대 코드제 — 기본 메뉴에는 넣지 않음
@@ -73,6 +74,12 @@ export const DEFAULT_MENU: MenuItem[] = [
       { label: '다이어리', href: '/diary' },
       { label: '감상타래', href: '/threads' },
       { label: '메모장', href: '/memo' },
+    ],
+  },
+  {
+    label: '도구',
+    children: [
+      { label: '로그 편집기', href: '/tools/log-editor' },
     ],
   },
   { label: '방명록', href: '/guest' },
