@@ -7,14 +7,16 @@
 // 바이트를 직접 싣지 않고 — Vercel 서버리스 함수의 응답 용량 한도(약 4.5MB)에 걸리므로 —
 // 짧게 유효한 signed URL만 돌려주고, 브라우저가 Storage에서 바로 받아 간다.
 //
-// 비밀번호 없이도 통과하는 두 경로(관리자 / member 공개범위 로그인 회원)는 Firestore 규칙의
-// isAdmin()/member 판정을 Node에서 그대로 재현한 것 — 그래야 비밀번호가 걸린 로그를
-// "원래부터 열람 권한이 있던 사람"이 본문만 비공개 Storage에 있다는 이유로 못 보는 일이 없다.
+// 비밀번호 없이도 통과하는 경로는 trpgAccess.ts의 readableWithoutPassword — 화면과 같은 판정이다.
+// 비밀번호가 걸린 로그는 관리자와 연동 자관의 상대방만 비밀번호 없이 받는다. 걸리지 않은 로그는
+// 공개범위대로(전체공개 / member 로그인 회원 / 관리자) — 본문만 비공개 Storage에 있다는 이유로
+// 원래 열람 권한이 있던 사람이 못 보는 일이 없게 한다.
 import { NextRequest, NextResponse } from 'next/server';
 import { cert, getApps, initializeApp } from 'firebase-admin/app';
 import { getAuth } from 'firebase-admin/auth';
-import { getFirestore } from 'firebase-admin/firestore';
+import { getFirestore, type Firestore } from 'firebase-admin/firestore';
 import { getStorage } from 'firebase-admin/storage';
+import { readableWithoutPassword, type LogViewer, type LogVisibility } from '@/lib/trpgAccess';
 
 export const runtime = 'nodejs';
 
@@ -34,8 +36,23 @@ function adminApp() {
   });
 }
 
-interface LogDoc { passwordHash?: string; passwordSalt?: string; visibility?: 'public' | 'member' | 'private' }
+interface LogDoc { passwordHash?: string; passwordSalt?: string; visibility?: LogVisibility; relId?: string }
 interface BodyDoc { body?: string; bodyId?: string; bodyHtml?: boolean; originalFileId?: string; originalName?: string }
+
+/** 연동 자관의 상대방인지 — 자관 멤버 캐릭터 중 하나라도 이 회원에게 권한(grants)을 줬는지.
+ *  화면의 isRelPartner(로그 상세)와 같은 판정이다. 잠금 캐릭터는 grants가 공개 문서에 없어 해당하지 않는다 */
+async function isRelPartner(db: Firestore, relId: string | undefined, uid: string): Promise<boolean> {
+  if (!relId) return false;
+  const rel = await db.collection('relations').doc(relId).get();
+  const members = ((rel.data()?.data ?? {}) as { members?: { charId?: string }[] }).members ?? [];
+  const ids = members.map(m => m.charId).filter((x): x is string => typeof x === 'string' && !!x);
+  if (!ids.length) return false;
+  const chars = await db.getAll(...ids.map(cid => db.collection('characters').doc(cid)));
+  return chars.some(c => {
+    const grants = ((c.data()?.data ?? {}) as { grants?: { userId?: string }[] }).grants ?? [];
+    return grants.some(g => g.userId === uid);
+  });
+}
 
 export async function POST(req: NextRequest) {
   let payload: { id?: string; password?: string; want?: 'body' | 'original' };
@@ -58,20 +75,21 @@ export async function POST(req: NextRequest) {
   if (!logSnap.exists) return NextResponse.json({ error: '찾을 수 없습니다' }, { status: 404 });
   const log = (logSnap.data()?.data ?? {}) as LogDoc;
 
-  // 비밀번호 없이 통과하는 경로 — 관리자 / member 로그인 회원 (Firestore 규칙과 같은 판정)
-  let allowedWithoutPassword = log.visibility === 'public';
+  // 비밀번호 없이 통과하는 경로 — 화면과 같은 판정(trpgAccess.ts). 비밀번호가 걸린 로그는
+  // 관리자와 연동 자관의 상대방만, 걸리지 않은 로그는 공개범위(전체공개 / member 로그인 회원)대로
+  let viewer: LogViewer = { isAdmin: false, isRelPartner: false, signedIn: false };
   const authHeader = req.headers.get('authorization');
-  if (!allowedWithoutPassword && authHeader?.startsWith('Bearer ')) {
+  if (authHeader?.startsWith('Bearer ')) {
     try {
       const decoded = await getAuth().verifyIdToken(authHeader.slice(7));
-      if (log.visibility === 'member') allowedWithoutPassword = true;
-      else {
-        const owner = await db.doc('meta/owner').get();
-        const o = owner.data() as { uid?: string; admins?: string[] } | undefined;
-        if (o && (o.uid === decoded.uid || o.admins?.includes(decoded.uid))) allowedWithoutPassword = true;
-      }
+      const owner = await db.doc('meta/owner').get();
+      const o = owner.data() as { uid?: string; admins?: string[] } | undefined;
+      const isAdmin = !!o && (o.uid === decoded.uid || !!o.admins?.includes(decoded.uid));
+      viewer = { isAdmin, signedIn: true, isRelPartner: !isAdmin && await isRelPartner(db, log.relId, decoded.uid) };
     } catch { /* 토큰이 유효하지 않으면 비밀번호 경로로 */ }
   }
+  const allowedWithoutPassword = readableWithoutPassword(
+    { visibility: log.visibility ?? 'private', passwordHash: log.passwordHash }, viewer, true);
 
   if (!allowedWithoutPassword) {
     const password = payload.password;

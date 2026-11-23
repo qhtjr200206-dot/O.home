@@ -117,6 +117,21 @@ export async function putPrivateBlob(blob: Blob): Promise<string> {
   return putBlob(blob);
 }
 
+/** 서버가 TRPG 로그 비밀번호를 확인해 본문을 내줄 수 있는지 — /api/trpg/unlock은 비공개 저장소를
+ *  지원하는 백엔드(Firebase, Admin SDK)에서만 동작한다 (trpgAccess.ts 참조) */
+export function serverUnlockSupported(): boolean {
+  return isServerMode() && !!backend()?.uploadPrivateFile;
+}
+
+/** 공개 주소에 있는 파일을 비공개 저장소로 복사한다 (비밀번호 로그로 바뀐 기존 본문·원본).
+ *  옮길 수 없으면(이미 비공개·받기 실패·지원하지 않는 백엔드) 원래 참조를 그대로 돌려준다 —
+ *  옮기다 실패했다고 본문을 잃는 것보다는 낫다. 원래 공개 파일은 지우지 않는다. */
+export async function moveToPrivateBlob(ref: string | undefined): Promise<string | undefined> {
+  if (!ref || !/^https?:/.test(ref) || !serverUnlockSupported()) return ref;
+  const blob = await getBlob(ref);
+  return blob ? putPrivateBlob(blob) : ref;
+}
+
 /** promoteToStorage의 결과 — 안 됐으면 **왜** 안 됐는지까지 알려 준다.
  *  조용히 실패하면 사용자는 「올렸는데 왜 안 보이지」에서 막힌다 (v2.0 사용자 지적). */
 export type PromoteResult =

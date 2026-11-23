@@ -11,7 +11,8 @@ import { Relation, REL_SEED } from '@/lib/charStore';
 import { SearchBar, KInput, KTextarea, KRadio, KSelect, KDate, Pager } from '@/components/ui/Kit';
 import { Modal } from '@/components/ui/Modal';
 import { EditableDesc, PageTitle } from '@/components/ui/PageText';
-import { putBlob, putPrivateBlob } from '@/lib/blobStore';
+import { putBlob, putPrivateBlob, serverUnlockSupported, moveToPrivateBlob } from '@/lib/blobStore';
+import { keepLogFilesPrivate, logBodyVisibility, readableWithoutPassword, isPublicFileRef } from '@/lib/trpgAccess';
 import { ColorField } from '@/components/ui/ColorField';
 import { CropEditor, CroppedBlobImg, CropValue, CropImg } from '@/components/ui/CropEditor';
 import { useToast } from '@/components/ui/Toast';
@@ -28,7 +29,7 @@ function TrpgPageInner() {
   const { user, isAdmin, ready: authReady } = useAuth();
   const toast = useToast();
   const [site] = useSiteSettings(); // 티켓 하단 문구 = 로고 서브타이틀 (5.2 연동)
-  const [logsAll, setLogsAll] = useLocalList<TrpgLog>('ohome.trpg.v1', TRPG_SEED);
+  const [logsAll, setLogsAll, logsLoaded] = useLocalList<TrpgLog>('ohome.trpg.v1', TRPG_SEED);
   // 여러 개로 만든 섹션 (v2.0) — 주소의 ?s= 가 가리키는 것만 보여 준다
   const sec = useSectionParam('trpg');
   const logs = filterSection(logsAll, sec.id);
@@ -36,8 +37,62 @@ function TrpgPageInner() {
   const setLogs = sectionSetter(logsAll, sec.id, setLogsAll);
   // 본문은 목록과 분리 저장 (v2.0) — 나만보기 로그도 목록엔 뜨게 하려고 목록 문서의 질의 조건이
   // listHidden으로 느슨해졌는데, 본문까지 같이 있으면 그 질의로 본문도 함께 새어 나간다
-  const [bodies, setBodies] = useLocalList<TrpgLogBody>('ohome.trpgbody.v1', TRPG_BODY_SEED);
+  const [bodies, setBodies, bodiesLoaded] = useLocalList<TrpgLogBody>('ohome.trpgbody.v1', TRPG_BODY_SEED);
   const [rels] = useLocalList<Relation>('ohome.rels.v1', REL_SEED);
+
+  /* 비밀번호 로그 본문 보호 — 기존 데이터 정리 (v2.0 사용자 제보, trpgAccess.ts 참조).
+     예전에는 본문 문서가 로그의 공개범위를 그대로 따랐고, 전체공개+비밀번호 로그의 큰 본문은 공개
+     저장소에 올렸다. 그래서 비밀번호를 걸어도 공개범위를 충족하는 사람은 본문을 직접 받을 수 있었다.
+     관리자가 이 화면을 열면 한 번 고친다: 본문 문서를 비공개로 바꾸고, 공개 주소의 본문·원본은
+     비공개 저장소로 옮기고, 로그 문서 안에 남은 구버전 본문은 본문 문서로 떼어 낸다.
+     공개 주소의 원래 파일은 지우지 않는다(옮기다 실패해도 본문을 잃지 않게). */
+  const logsRef = useRef(logsAll); logsRef.current = logsAll;
+  const bodiesRef = useRef(bodies); bodiesRef.current = bodies;
+  const healedRef = useRef(false);
+  useEffect(() => {
+    if (healedRef.current || !authReady || !isAdmin || !logsLoaded || !bodiesLoaded || !serverUnlockSupported()) return;
+    healedRef.current = true;
+    const pwLogs = logsRef.current.filter(l => l.passwordHash);
+    if (!pwLogs.length) return;
+    const bodyOf = new Map(bodiesRef.current.map(b => [b.id, b]));
+    const legacy = pwLogs.filter(l => l.body || l.bodyId || l.originalFileId);
+    const stale = pwLogs.filter(l => {
+      const b = bodyOf.get(l.id);
+      return !!b && (b.visibility !== 'private' || isPublicFileRef(b.bodyId) || isPublicFileRef(b.originalFileId));
+    });
+    if (!legacy.length && !stale.length) return;
+    (async () => {
+      const fixed = new Map<string, TrpgLogBody>();
+      for (const l of [...stale, ...legacy]) {
+        const b = bodyOf.get(l.id);
+        const base: TrpgLogBody = b ?? {
+          id: l.id, body: l.body ?? '', bodyId: l.bodyId, bodyHtml: l.bodyHtml,
+          originalFileId: l.originalFileId, originalName: l.originalName,
+          visibility: 'private', ...(l.secId ? { secId: l.secId } : {}),
+        };
+        fixed.set(l.id, {
+          ...base,
+          visibility: logBodyVisibility(l, true),
+          bodyId: await moveToPrivateBlob(base.bodyId),
+          originalFileId: await moveToPrivateBlob(base.originalFileId),
+        });
+      }
+      // 저장 직전의 최신 목록 기준으로 바꾼다 — 그 사이 추가된 항목을 지우지 않게
+      const curBodies = bodiesRef.current;
+      const known = new Set(curBodies.map(b => b.id));
+      setBodies([
+        ...curBodies.map(b => fixed.get(b.id) ?? b),
+        ...[...fixed.values()].filter(b => !known.has(b.id)),
+      ]);
+      if (legacy.length) {
+        const legacyIds = new Set(legacy.map(l => l.id));
+        setLogsAll(logsRef.current.map(l => (legacyIds.has(l.id)
+          ? { ...l, body: undefined, bodyId: undefined, bodyHtml: undefined, originalFileId: undefined, originalName: undefined }
+          : l)));
+      }
+    })().catch(() => { healedRef.current = false; });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [authReady, isAdmin, logsLoaded, bodiesLoaded]);
   const { editOn } = useMainStore();          // 편집모드 — 상단바 토글 (다른 목록과 공통)
   const [filter, setFilter] = useState<string>('all');
   const [skin, setSkin] = useState<'ticket' | 'basic'>('ticket');
@@ -87,7 +142,10 @@ function TrpgPageInner() {
   // 목록에 뜰지는 오직 listHidden — 접근권한(visibility)은 "누가 열 수 있는지"만 정하고
   // 목록에 나오는지는 정하지 않는다 (v2.0 사용자 확정: "나만보기여도 목록에는 표시돼야해").
   // 열 수 있는지는 상세 페이지가 다시 독립적으로 확인하므로, 목록에 뜬다고 내용이 새지 않는다
-  const canOpen = (l: TrpgLog) => isAdmin || l.visibility === 'public' || (l.visibility === 'member' && !!user);
+  // 「비밀번호 필요」 표시도 상세 페이지와 같은 판정(trpgAccess.ts) — 비밀번호가 걸리면 공개범위와 무관하게.
+  // 연동 자관의 상대방 여부는 여기서 계산하지 않는다(표시만 다를 뿐, 상세 페이지에서는 바로 열린다)
+  const canOpen = (l: TrpgLog) => readableWithoutPassword(
+    l, { isAdmin, isRelPartner: false, signedIn: !!user }, serverUnlockSupported());
   const visible = logs
     // 목록 숨김 — 관리자도 편집모드가 아니면 안 보인다(목록을 정리해 두는 용도라, v2.0 사용자 요청).
     // 편집모드에서는 관리자에게만 예외로 보여 되돌릴 수 있게 한다
@@ -245,15 +303,16 @@ function TrpgPageInner() {
     const body: TrpgLogBody = {
       id,
       // 본문 저장 위치는 saveLogBody가 정한다 (서버면 문서에 직접 · 로컬이거나 아주 크면 파일로).
-      // 비밀번호가 걸린(+공개가 아닌) 로그는 큰 본문·원본 파일 모두 private-trpg/ 로 —
+      // 비밀번호가 걸린 로그는 공개범위와 상관없이 큰 본문·원본 파일 모두 private-trpg/ 로 —
       // 비밀번호를 몰라도 파일 주소만으로 읽히는 구멍이 안 생기게 한다 (/api/trpg/unlock 참고)
-      ...(await saveLogBody(bodyText, { private: !!pw.passwordHash && nVis !== 'public' })),
+      ...(await saveLogBody(bodyText, { private: keepLogFilesPrivate(log) })),
       // 업로드 원본 파일은 그대로 보관 (4.3 — 백업 목적, IndexedDB → R2 이전 예정)
       originalFileId: nFile
-        ? await (pw.passwordHash && nVis !== 'public' ? putPrivateBlob(nFile) : putBlob(nFile))
+        ? await (keepLogFilesPrivate(log) ? putPrivateBlob(nFile) : putBlob(nFile))
         : undefined,
       originalName: nFile?.name,
-      visibility: log.visibility,
+      // 비밀번호가 걸리면 본문 문서는 관리자만 직접 읽는다 — 나머지는 서버가 비밀번호를 확인한 뒤에만
+      visibility: logBodyVisibility(log, serverUnlockSupported()),
       ...secStamp(sec.id),   // 소속 (v2.0) — 본문 문서도 비공개 판정을 받게
     };
     setLogs([log, ...logs]);

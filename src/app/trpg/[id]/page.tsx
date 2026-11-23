@@ -10,7 +10,8 @@ import { useLocalList } from '@/lib/postStore';
 import { TrpgLog, TRPG_SEED, TrpgLogBody, TRPG_BODY_SEED, showAsHtml, decodeLogText, logNo, saveLogBody, hashNewPassword } from '@/lib/galleryStore';
 import { Relation, REL_SEED, Character, CHAR_SEED, charGrant } from '@/lib/charStore';
 import { Modal, ConfirmModal } from '@/components/ui/Modal';
-import { getBlob, putBlob, putPrivateBlob, useBlobUrl } from '@/lib/blobStore';
+import { getBlob, putBlob, putPrivateBlob, useBlobUrl, serverUnlockSupported, moveToPrivateBlob } from '@/lib/blobStore';
+import { readableWithoutPassword, logBodyVisibility } from '@/lib/trpgAccess';
 import { PageTitle, EditableDesc } from '@/components/ui/PageText';
 import { KInput, KSelect, KDate, KTextarea } from '@/components/ui/Kit';
 import { ColorField } from '@/components/ui/ColorField';
@@ -113,15 +114,15 @@ export default function TrpgDetailPage() {
   const tt = useSectionTitle('trpg', l?.secId, 'TRPG LOG');
   const bd = bodies.find(x => x.id === id);   // 분리 저장된 본문 — 권한이 없으면 애초에 안 온다 (undefined)
 
-  // 접근권한 (4.3) — 관리자 / 공개범위 충족 / 비밀번호 입력자 /
-  // 연동 자관의 상대방(멤버 캐릭터에 권한이 부여된 회원)은 무조건 열람 (3차 회원-캐릭터 연결, v1.9)
+  // 접근권한 (4.3) — 관리자 / 연동 자관의 상대방(멤버 캐릭터에 권한이 부여된 회원)은 무조건 열람
+  // (3차 회원-캐릭터 연결, v1.9). 그 밖에는 비밀번호가 걸리면 공개범위와 상관없이 비밀번호를 거친다
+  // (v2.0 사용자 제보 — 목록에 표시한 멤버공개 로그가 로그인 회원에게 비밀번호 없이 열렸다). trpgAccess.ts
   const logRel = rels.find(r => r.id === l?.relId);
   const isRelPartner = !!user && !!logRel && logRel.members.some(m => {
     const ch = allChars.find(c => c.id === m.charId);
     return ch ? !!charGrant(ch, user.id) : false;
   });
-  const baseAllowed = !!l && (isAdmin || isRelPartner
-    || l.visibility === 'public' || (l.visibility === 'member' && !!user));
+  const baseAllowed = !!l && readableWithoutPassword(l, { isAdmin, isRelPartner, signedIn: !!user }, serverUnlockSupported());
 
   // 비밀번호 열람 (4.3 — v2.0 서버 재검증) — 본문은 /api/trpg/unlock이 확인 후 내려준 것만 쓴다.
   // 세션 동안 유지하되, 큰 본문(signed URL 경로)은 본문 자체가 아니라 그 URL을 캐시해 둔다 —
@@ -202,9 +203,9 @@ export default function TrpgDetailPage() {
     const pw = pwMode === 'remove' ? { passwordHash: undefined, passwordSalt: undefined }
       : pwMode === 'change' ? await hashNewPassword(pwNew) : {};
     const hasPw = pwMode === 'remove' ? false : pwMode === 'change' ? !!pwNew.trim() : !!l?.passwordHash;
-    // 비밀번호가 걸린(+공개가 아닌) 로그의 큰 본문·원본 파일은 private-trpg/ 로 — 비밀번호를
+    // 비밀번호가 걸린 로그의 큰 본문·원본 파일은 공개범위와 상관없이 private-trpg/ 로 — 비밀번호를
     // 몰라도 파일 주소만으로 읽히는 구멍이 안 생기게 한다 (/api/trpg/unlock 참고)
-    const bodyPrivate = hasPw && e.visibility !== 'public';
+    const bodyPrivate = hasPw;   // = keepLogFilesPrivate (trpgAccess.ts)
     // 본문 교체 준비 — 본문은 목록과 분리 저장이라(v2.0) 이제 TrpgLogBody 조각으로 만든다
     let bodyPatch: Partial<TrpgLogBody> = {};
     if (bodyMode === 'file' && eFile) {
@@ -252,9 +253,15 @@ export default function TrpgDetailPage() {
       originalName: bd?.originalName ?? l?.originalName,
       bodyHtml: bodyDisp === 'auto' ? undefined : bodyDisp === 'html',
       ...bodyPatch,
-      visibility: nextLog.visibility,
+      visibility: logBodyVisibility(nextLog, serverUnlockSupported()),
       ...secStamp(nextLog.secId ?? MAIN_SEC),   // 소속 (v2.0) — 본문 문서도 비공개 판정을 받게
     };
+    // 본문을 그대로 둔 채 비밀번호를 건 경우 — 예전에 공개 주소로 올린 본문·원본 파일을 비공개
+    // 저장소로 옮긴다. 본문 문서가 비공개가 되어도 공개 주소를 아는 사람은 그대로 받을 수 있기 때문이다
+    if (bodyPrivate) {
+      nextBody.bodyId = await moveToPrivateBlob(nextBody.bodyId);
+      nextBody.originalFileId = await moveToPrivateBlob(nextBody.originalFileId);
+    }
     // 새 본문 문서는 뒤에 붙인다 (v2.0 포크 제보) — 앞에 끼우면 기존 본문 전체의 자리가 밀려
     // 재저장 대상이 되고, 큰 본문이 쌓인 홈에서는 그 합이 쓰기 한도를 넘어 저장이 실패했다
     setBodies(bd ? bodies.map(x => x.id === id ? nextBody : x) : [...bodies, nextBody]);
@@ -272,6 +279,16 @@ export default function TrpgDetailPage() {
     // authReady 전에는 bd가 아직 비로그인 범위 질의 결과일 수 있다 — 그 상태로 "본문 없음"을
     // 확정해버리면 관리자에게도 번쩍이고, 토큰도 아직 없는 채로 헛되이 한 번 요청을 보내게 된다
     if (!l || !authReady) return;
+    // 비밀번호 로그의 본문 문서는 관리자만 직접 읽는다 (trpgAccess.ts) — 비밀번호 없이 열 수 있는
+    // 연동 자관의 상대방은 DB에서 못 받으므로, 서버가 로그인 토큰으로 확인한 뒤 내려준다
+    if (!bd && l.passwordHash && !isAdmin && baseAllowed && serverUnlockSupported()) {
+      setBodyFailed(false);
+      currentIdToken()
+        .then(token => callUnlock(id, { token }))
+        .then(r => { if (r.ok) setBodyText(r.body); else { setBodyText(''); setBodyFailed(true); } })
+        .catch(() => { setBodyText(''); setBodyFailed(true); });
+      return;
+    }
     const src = bd ?? l;   // bd가 없으면(아직 분리 전인 구버전 로그) l 자신에서 읽는다
     setBodyFailed(false);
     if (src.body) { setBodyText(src.body); return; }
@@ -289,7 +306,7 @@ export default function TrpgDetailPage() {
         .then(async b => { if (b) setBodyText(await b.text()); else { setBodyText(''); setBodyFailed(true); } })
         .catch(() => { setBodyText(''); setBodyFailed(true); });
     } else setBodyText('');
-  }, [l, bd, authReady]);
+  }, [l, bd, authReady, isAdmin, baseAllowed, id]);
 
   // 샌드박스 안 높이 리포터 수신 → iframe 높이 자동 맞춤 (널 오리진이라 직접 측정 불가)
   useEffect(() => {
