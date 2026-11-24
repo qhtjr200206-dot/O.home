@@ -8,6 +8,7 @@ import {
 import { generateVillageMap, terrainFlags, walkable, type VillageMap } from './map';
 import { hashRoomPassword, verifyRoomPassword } from './password';
 import { CATCH, MEMORY, catchReplay, memoryDeck, memoryScore } from './games';
+import { simulate, type WakeMark } from './sim';
 import {
   GIFTS, LIMITS, MINIGAMES, cleanText, parseCreateRoom, passwordProblem, validDocId, validRoomId,
   type ActorOverride, type RoomActor, type RoomEvent, type RoomSummary, type RoomView,
@@ -92,11 +93,17 @@ function safeAvatar(v: unknown): PixelAvatarData | null {
   if (!rec(v)) return null;
   const n = (x: unknown) => (Number.isInteger(x) && (x as number) >= 0 && (x as number) < 64 ? x as number : 0);
   const col = (x: unknown) => (typeof x === 'string' && /^#[0-9a-f]{6}$/i.test(x) ? x : undefined);
+  // 앞머리·뒷머리(back 0..39, front 0..15)도 그대로 넘긴다 — 빼면 마을에서만 머리 모양이 기본값으로 돌아간다
+  // (v2.0 사용자 요청 — 도트 머리 파츠 분리). 값이 없거나 범위 밖이면 넣지 않아 기존 hair 그림을 쓴다.
+  const opt = (x: unknown, max: number) => (Number.isInteger(x) && (x as number) >= 0 && (x as number) < max ? x as number : undefined);
+  const back = opt(v.back, 40), front = opt(v.front, 16);
   return {
     hair: n(v.hair), face: n(v.face), body: n(v.body),
     hairColor: col(v.hairColor) ?? '#554050', skinColor: col(v.skinColor) ?? '#edbd9f', bodyColor: col(v.bodyColor) ?? '#647a9a',
     ...(col(v.eyeColor) ? { eyeColor: col(v.eyeColor) } : {}),
-  };
+    ...(back !== undefined ? { back } : {}),
+    ...(front !== undefined ? { front } : {}),
+  } as PixelAvatarData;
 }
 /** 캐릭터 문서의 지금 이름·색·도트(잠긴 캐릭터는 도트 비공개) */
 function charLook(doc: DocumentData) {
@@ -365,12 +372,13 @@ async function bumpRoomFails(ref: DocumentReference, roomId: string, t: number) 
 export async function roomState(c: Ctx, roomId: unknown, token: unknown, uid: string | null, since: unknown) {
   const { ref, room } = await authorize(c, roomId, token, uid);
   const after = typeof since === 'number' && Number.isFinite(since) && since > 0 ? since : 0;
-  const [pos, ev, scores, actors] = await Promise.all([
+  const [pos, ev, scores, actors, wakeDocs] = await Promise.all([
     ref.collection('pos').get(),
     after ? ref.collection('events').where('at', '>', after).orderBy('at').limit(60).get()
       : ref.collection('events').orderBy('at', 'desc').limit(60).get(),
     ref.collection('scores').get(),
     liveActors(c, room),
+    ref.collection('wake').get(),
   ]);
   const ids = new Set(actors.map(a => a.id));
   const events = ev.docs.map(d => ({ id: d.id, ...d.data() }) as RoomEvent & { actorUid?: string });
@@ -380,8 +388,14 @@ export async function roomState(c: Ctx, roomId: unknown, token: unknown, uid: st
     overrides: pos.docs.filter(d => ids.has(d.id)).map(d => ({ id: d.id, x: d.data().x, y: d.data().y, at: d.data().at, by: '' }) as ActorOverride),
     events: events.map(({ actorUid: _u, ...e }) => { void _u; return e; }),
     scores: scores.docs.filter(d => ids.has(d.data().actor)).map(d => ({ actor: d.data().actor, game: d.data().game, best: d.data().best })),
+    wakes: wakeMarks(wakeDocs.docs, ids),
     serverTime: now(c),
   };
+}
+
+/** 깨우기 문서(wake/{배우 id}) → 시뮬레이션이 쓰는 표시. 방에 없는 배우·이상한 값은 버린다 */
+function wakeMarks(docs: { id: string; data: () => DocumentData }[], ids: Set<string>): WakeMark[] {
+  return docs.filter(d => ids.has(d.id) && Number.isFinite(d.data().at)).map(d => ({ id: d.id, at: Number(d.data().at) }));
 }
 
 /* ---------------- 캐릭터 조작 권한 — 매 명령 신선하게 재조회 ---------------- */
@@ -430,6 +444,7 @@ export async function act(c: Ctx, roomId: unknown, token: unknown, uid: string |
   const { ref, room } = await authorize(c, roomId, token, uid);
   const admin = await isAdmin(c.db, uid);
   if (!(await controllable(c, uid!, room, actorId, admin))) fail('이 캐릭터를 움직일 권한이 없습니다', 403);
+  // 깨우기는 말 걸기와 같은 한도(분당 12회)를 쓴다 — 남의 캐릭터를 계속 깨워 소식란을 도배하지 못하게
   const kind = a.type === 'move' || a.type === 'release' ? 'move' : a.type === 'game' || a.type === 'gameStart' ? 'game' : 'talk';
   if (a.type === 'gameFlip') return memoryFlip(c, roomId, token, uid!, actorId, a, now(c));
   const t = now(c);
@@ -450,6 +465,24 @@ export async function act(c: Ctx, roomId: unknown, token: unknown, uid: string |
     if (a.type === 'message' && (!text || text.length > LIMITS.message)) fail(`내용은 1~${LIMITS.message}자로 적어 주세요`, 400);
     const ev = a.type === 'gift' ? { type: 'gift', from: actorId, to: a.to, item: a.item } : { type: 'message', from: actorId, to: a.to, text };
     write = tx => tx.set(ref.collection('events').doc(), { ...ev, at: t, actorUid: uid });
+  } else if (a.type === 'wake') {
+    // 깨우기 (v2.0 사용자 요청 — 자는 캐릭터도 깨워서 상호작용). 내가 조작할 수 있는 캐릭터(actor)가
+    // 방 안의 자는 캐릭터(to, 자기 자신도 가능)를 깨운다. 자는지는 서버가 지금 시각·조작 위치·깨우기 기록으로
+    // 모든 접속자와 같은 시뮬레이션을 돌려 판정한다(클라이언트가 보낸 상태는 믿지 않는다).
+    const visible = await liveActors(c, room);
+    if (typeof a.to !== 'string' || !visible.some(x => x.id === a.to)) fail('깨울 캐릭터를 골라 주세요', 400);
+    const target = a.to as string;
+    check = async tx => {
+      const [pos, wakes] = await Promise.all([tx.get(ref.collection('pos')), tx.get(ref.collection('wake'))]);
+      const ids = new Set(visible.map(x => x.id));
+      const overrides = pos.docs.filter(d => ids.has(d.id)).map(d => ({ id: d.id, x: d.data().x, y: d.data().y, at: d.data().at, by: '' }));
+      const frame = simulate(mapOf(room), room.seed, visible, overrides, t, wakeMarks(wakes.docs, ids)).find(f => f.id === target);
+      if (!frame?.sleeping) fail('지금 깨어 있는 캐릭터입니다', 409);
+    };
+    write = tx => {
+      tx.set(ref.collection('wake').doc(target), { at: t, by: actorId });
+      tx.set(ref.collection('events').doc(), { type: 'wake', from: actorId, to: target, at: t, actorUid: uid });
+    };
   } else if (a.type === 'gameStart') {
     // 판 시작 — 서버가 판을 정하고 시작 시각을 기록한다. 점수는 서버가 계산한다.
     //  · 별 줍기: 시드를 내려 주고, 끝나면 400틱 입력을 받아 같은 규칙으로 재생한다.

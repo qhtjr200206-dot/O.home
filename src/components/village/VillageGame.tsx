@@ -2,16 +2,16 @@
 // 마을 게임 화면 — 캔버스 맵, 시간대별 자율 행동, 조작(이동·선물·메시지·미니게임), 방 관리.
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { generateVillageMap, type VillageMap } from '@/lib/village/map';
-import { simulate, phaseAt, PHASE_LABEL, type ActorFrame } from '@/lib/village/sim';
+import { simulate, phaseAt, PHASE_LABEL, type ActorFrame, type WakeMark } from '@/lib/village/sim';
 import { ERAS, GIFTS, MINIGAMES, LIMITS, josa, type ActorOverride, type RoomEvent, type RoomView, type MinigameId } from '@/lib/village/types';
 import { villageApi, roomToken, VillageApiError } from '@/lib/village/client';
-import { avatarSprite, buildMapCanvas, npcAvatar, PHASE_TINT, SPRITE_WORLD, TILE, windowLights } from './render';
+import { avatarSprite, buildScene, npcAvatar, DARKNESS, PHASE_TINT, SPRITE_WORLD, TILE } from './render';
 import { PixelAvatar } from '@/components/chars/PixelAvatar';
 import type { PixelAvatarData } from '@/components/chars/PixelAvatar';
 import { CatchGame, MemoryGame, type FlipResult } from './Minigames';
 
 const DEFAULT_LOOK: PixelAvatarData = { hair: 0, face: 7, body: 0, hairColor: '#4a4550', skinColor: '#e9c4a8', bodyColor: '#8a8f99' };
-type State = { room: RoomView; overrides: ActorOverride[]; events: RoomEvent[]; scores: { actor: string; game: string; best: number }[]; serverTime: number };
+type State = { room: RoomView; overrides: ActorOverride[]; events: RoomEvent[]; scores: { actor: string; game: string; best: number }[]; wakes?: WakeMark[]; serverTime: number };
 type Panel = null | 'gift' | 'message' | 'game' | 'manage';
 
 const kst = (t: number) => {
@@ -47,6 +47,9 @@ export function VillageGame({ roomId, loggedIn, isAdmin, onLeave, onNeedPassword
     if (e instanceof VillageApiError && e.status === 401) { roomToken.clear(roomId); onNeedPassword(e.message); return; }
     setToast((e as Error).message);
   }, [roomId, onNeedPassword]);
+  // 부모가 콜백을 매번 새로 넘겨도 조작 목록을 다시 불러오지 않도록 최신 fail을 ref로 쓴다
+  const failRef = useRef(fail);
+  useEffect(() => { failRef.current = fail; }, [fail]);
 
   // 처음 불러오기 + 3초 폴링(탭이 숨겨지면 쉰다)
   useEffect(() => {
@@ -63,15 +66,21 @@ export function VillageGame({ roomId, loggedIn, isAdmin, onLeave, onNeedPassword
           const seen = new Set(prev.events.map(e => e.id));
           return { ...r, events: [...prev.events, ...r.events.filter(e => !seen.has(e.id))].slice(-120) };
         });
-      } catch (e) { if (alive) fail(e); }
+      } catch (e) { if (alive) failRef.current(e); }
       if (alive) timer = setTimeout(() => load(false), document.hidden ? 10_000 : 3_000);
     };
     void load(true);
     return () => { alive = false; clearTimeout(timer); };
-  }, [roomId, token, fail]);
+  }, [roomId, token]);   // fail은 ref로 — 부모 재렌더마다 폴링이 처음부터 다시 시작되지 않게
   useEffect(() => {
     if (!loggedIn) { setControls([]); return; }
-    villageApi<{ actors: string[] }>('controls', { roomId, token }).then(r => setControls(r.actors)).catch(() => setControls([]));
+    villageApi<{ actors: string[] }>('controls', { roomId, token }).then(r => {
+      setControls(r.actors);
+      // 조작할 캐릭터가 있으면 처음부터 하나를 골라 둔다 — 좁은 화면에서는 '내 캐릭터' 칩이 지도 아래에 있어
+      // 고르는 곳을 못 찾고 "선택이 안 된다"고 느꼈다 (v2.0 사용자 제보). NPC보다 캐릭터를 먼저 고른다.
+      const first = r.actors.find(id => !id.startsWith('npc:')) ?? r.actors[0];
+      if (first) { setSelected(cur => cur ?? first); setFocus(cur => cur ?? first); }
+    }).catch(e => { setControls([]); failRef.current(e); });   // 실패를 조용히 삼키면 '조작할 캐릭터 없음'으로만 보인다
   }, [roomId, token, loggedIn]);
   useEffect(() => { const t = setInterval(() => setClock(Date.now()), 15_000); return () => clearInterval(t); }, []);
   useEffect(() => { if (!toast) return; const t = setTimeout(() => setToast(''), 3500); return () => clearTimeout(t); }, [toast]);
@@ -102,8 +111,25 @@ export function VillageGame({ roomId, loggedIn, isAdmin, onLeave, onNeedPassword
   const sel = room.actors.find(a => a.id === selected) ?? null;
   const focused = room.actors.find(a => a.id === (focus ?? selected)) ?? null;
   const shifted = devShift.current ? st.overrides.map(o => ({ ...o, at: o.at + devShift.current })) : st.overrides;
+  const wakes = devShift.current ? (st.wakes ?? []).map(w => ({ ...w, at: w.at + devShift.current })) : (st.wakes ?? []);
   const t = clock + offset.current;
   const phase = phaseAt(t);
+  // 캐릭터 고르기 (v2.0 사용자 제보 — "마을에서 캐릭터 선택 불가"). 예전에는 조작할 캐릭터를 사이드 패널의
+  // '내 캐릭터' 칩으로만 고를 수 있었고, 지도·'마을 사람들' 목록에서 캐릭터를 눌러도 초상만 바뀌었다.
+  // 좁은 화면에선 그 칩이 지도 아래로 밀려 있어 "눌러도 안 골라진다"가 됐다. 이제 어디서 누르든
+  // 내가 조작할 수 있는 캐릭터면 바로 조작 대상으로 고르고, 아니면 살펴보기(깨우기·선물 대상)로 연다.
+  const pickActor = (id: string) => {
+    setFocus(id);
+    if (controls.includes(id)) { setSelected(id); return; }
+    if (loggedIn && !controls.length) setToast('이 캐릭터를 조작할 권한이 없어요 — 살펴보기만 할 수 있습니다');
+  };
+  const focusFrame = focused ? simulate(map, room.seed, room.actors, shifted, t, wakes).find(f => f.id === focused.id) : undefined;
+  // 깨우는 쪽: 고른 내 캐릭터, 없으면 내가 조작할 수 있는 첫 캐릭터(서버가 같은 권한을 다시 확인한다)
+  const waker = sel?.id ?? controls[0] ?? null;
+  const wake = (to: string) => {
+    if (!waker) { setToast(loggedIn ? '깨우려면 조작할 수 있는 캐릭터가 있어야 해요' : '로그인하면 깨울 수 있어요'); return; }
+    void send({ type: 'wake', actor: waker, to }, waker === to ? `${josa(nameOf(to), '이/가')} 일어났어요` : `${josa(nameOf(waker), '이/가')} ${josa(nameOf(to), '을/를')} 깨웠어요`);
+  };
 
   return (
     <div className="village-layout">
@@ -115,13 +141,13 @@ export function VillageGame({ roomId, loggedIn, isAdmin, onLeave, onNeedPassword
           <span style={{ flex: 1 }} />
           <button className="btn btn-ghost" onClick={onLeave}>나가기</button>
         </div>
-        <VillageCanvas map={map} room={room} overrides={shifted} offset={offset} selected={selected} focus={focus}
+        <VillageCanvas map={map} room={room} overrides={shifted} wakes={wakes} offset={offset} selected={selected} focus={focus}
           onTile={(x, y) => {
-            if (!selected || !controls.includes(selected)) { setToast('조작할 내 캐릭터를 먼저 고르세요'); return; }
+            if (!selected || !controls.includes(selected)) { setToast(controls.length ? '지도에서 내 캐릭터를 누르거나 “내 캐릭터”에서 먼저 고르세요' : '이 방에 조작할 수 있는 캐릭터가 없어요'); return; }
             // 서버가 허용한 위치만 반영한다. 거절된 이동은 화면에 나타나지 않는다.
             void send({ type: 'move', actor: selected, x, y });
           }}
-          onActor={id => setFocus(id)} />
+          onActor={pickActor} />
         {toast && <div role="status" className="village-toast">{toast}</div>}
         {room.worldview && <details className="village-card" style={{ marginTop: 8 }}><summary>세계관</summary><p style={{ whiteSpace: 'pre-wrap', margin: '8px 0 0' }}>{room.worldview}</p></details>}
       </div>
@@ -186,13 +212,19 @@ export function VillageGame({ roomId, loggedIn, isAdmin, onLeave, onNeedPassword
               <h3 style={{ margin: 0 }}>{focused.name}</h3>
               <small className="village-muted">{focused.kind === 'npc' ? `NPC${focused.role ? ` · ${focused.role}` : ''}` : focused.avatar ? '캐릭터 프로필 도트' : '도트 비공개 캐릭터'}</small>
               {focused.lines.length > 0 && <p className="village-muted" style={{ margin: '6px 0 0', fontSize: 13 }}>“{focused.lines[0]}”</p>}
+              {focusFrame?.sleeping && (
+                <button className="btn btn-dark" style={{ marginTop: 8 }} onClick={() => wake(focused.id)} disabled={!waker}
+                  title={waker ? undefined : '조작할 수 있는 캐릭터가 있어야 깨울 수 있어요'}>
+                  ⏰ {waker === focused.id ? '일어나기' : `${focused.name} 깨우기`}
+                </button>
+              )}
             </div>
           </section>
         )}
 
         <section className="village-card">
           <h3>마을 사람들</h3>
-          <ActorList room={room} map={map} overrides={shifted} offset={offset.current} focus={focus} onFocus={setFocus} />
+          <ActorList room={room} map={map} overrides={shifted} wakes={wakes} offset={offset.current} focus={focus} selected={selected} onFocus={pickActor} onWake={waker ? wake : null} />
         </section>
 
         <section className="village-card">
@@ -212,28 +244,32 @@ export function VillageGame({ roomId, loggedIn, isAdmin, onLeave, onNeedPassword
 }
 
 /* ---------------- 캔버스 ---------------- */
-function VillageCanvas({ map, room, overrides, offset, selected, focus, onTile, onActor }: {
-  map: VillageMap; room: RoomView; overrides: ActorOverride[]; offset: React.RefObject<number>;
+function VillageCanvas({ map, room, overrides, wakes, offset, selected, focus, onTile, onActor }: {
+  map: VillageMap; room: RoomView; overrides: ActorOverride[]; wakes: WakeMark[]; offset: React.RefObject<number>;
   selected: string | null; focus: string | null; onTile: (x: number, y: number) => void; onActor: (id: string) => void;
 }) {
   const wrap = useRef<HTMLDivElement>(null);
   const cvs = useRef<HTMLCanvasElement>(null);
   const cam = useRef({ x: map.width * TILE / 2, y: map.height * TILE / 2, scale: 2, follow: true });
   const [, force] = useState(0);
-  const bg = useMemo(() => buildMapCanvas(map, room.seed), [map, room.seed]);
-  const lights = useMemo(() => windowLights(map), [map]);
+  const scene = useMemo(() => buildScene(map, room.seed), [map, room.seed]);
   // 폴링마다 room 객체가 새로 와도 외형이 같으면 다시 만들지 않는다(원본 캐릭터 도트가 바뀌면 바로 반영)
   const lookKey = JSON.stringify(room.actors.map(a => [a.id, a.name, a.avatar]));
   const sprites = useMemo(() => new Map<string, PixelAvatarData | null>(room.actors.map(a => [a.id, a.avatar ?? (a.kind === 'npc' ? npcAvatar(a.id, a.name) : null)])), [lookKey]); // eslint-disable-line react-hooks/exhaustive-deps
-  const latest = useRef({ overrides, selected, focus, room, sprites });
-  latest.current = { overrides, selected, focus, room, sprites };
+  const latest = useRef({ overrides, wakes, selected, focus, room, sprites });
+  latest.current = { overrides, wakes, selected, focus, room, sprites };
   const frames = useRef<ActorFrame[]>([]);
+  // 화면에 실제로 그려진 위치(걷는 중 보간된 위치) — 누르기 판정은 목적지가 아니라 보이는 자리로 한다
+  const drawn = useRef(new Map<string, { x: number; y: number }>());
 
   useEffect(() => {
     const cv = cvs.current!, box = wrap.current!;
     const ctx = cv.getContext('2d')!;
     let raf = 0;
-    const rp = new Map<string, { x: number; y: number }>();
+    const rp = drawn.current;
+    // 어둠 층을 따로 그려 불빛 자리만 도려내는 데 쓰는 화면 밖 캔버스
+    const dark = document.createElement('canvas');
+    const dctx = dark.getContext('2d')!;
     const spriteMemo = new Map<string, { av: PixelAvatarData | null; px: number; img: HTMLCanvasElement }>();
     let initialized = false;
     const fit = () => {
@@ -255,8 +291,8 @@ function VillageCanvas({ map, room, overrides, offset, selected, focus, onTile, 
     const draw = (now: number) => {
       const dt = Math.min(100, now - lastT); lastT = now;
       const t = Date.now() + (offset.current ?? 0);
-      const { overrides: ov, selected: sel, focus: fo, room, sprites } = latest.current;
-      const fr = simulate(map, room.seed, room.actors, ov, t);
+      const { overrides: ov, wakes: wk, selected: sel, focus: fo, room, sprites } = latest.current;
+      const fr = simulate(map, room.seed, room.actors, ov, t, wk);
       frames.current = fr;
       const W = cv.clientWidth, H = cv.clientHeight, c = cam.current, s = c.scale;
       // 카메라: 조작/선택한 캐릭터를 따라간다
@@ -272,8 +308,13 @@ function VillageCanvas({ map, room, overrides, offset, selected, focus, onTile, 
       const ox = W / 2 - c.x * s, oy = H / 2 - c.y * s;
       ctx.fillStyle = '#1b1e26'; ctx.fillRect(0, 0, W, H);
       ctx.imageSmoothingEnabled = false;
-      ctx.drawImage(bg, ox, oy, bg.width * s, bg.height * s);
-      // 배우
+      // 지면 — 두 장을 0.7초마다 번갈아 그려 물결·유도선이 반짝인다. 화면 원점을 기기 픽셀에 맞춰
+      // 배율이 정수가 아니어도 칸 경계가 흔들리지 않게 한다
+      const dpr = cv.width / Math.max(1, W);
+      const snap = (v: number) => Math.round(v * dpr) / dpr;
+      const gx = snap(ox), gy = snap(oy);
+      const ground = scene.ground[Math.floor(now / 700) % 2];
+      ctx.drawImage(ground, gx, gy, ground.width * s, ground.height * s);
       const phase = phaseAt(t);
       const list = fr.map(f => {
         const cur = rp.get(f.id);
@@ -285,44 +326,70 @@ function VillageCanvas({ map, room, overrides, offset, selected, focus, onTile, 
         const p = rp.get(f.id)!;
         const walking = f.moving || Math.hypot(p.x - f.x, p.y - f.y) > 0.05;
         return { f, p, walking };
-      }).sort((a, b) => a.p.y - b.p.y);
-      ctx.imageSmoothingEnabled = false;
-      for (const { f, p, walking } of list) {
+      });
+      // 건물·나무·가로등과 캐릭터를 바닥선(y) 순으로 함께 그린다 — 건물 뒤를 지나가면 가려진다
+      type Item = { y: number; prop?: (typeof scene.props)[number]; actor?: (typeof list)[number] };
+      const items: Item[] = [...scene.props.map(prop => ({ y: prop.sortY, prop })), ...list.map(actor => ({ y: actor.p.y, actor }))].sort((a, b) => a.y - b.y);
+      for (const it of items) {
+        if (it.prop) {
+          const pr = it.prop;
+          ctx.drawImage(pr.img, snap(gx + pr.x * s), snap(gy + pr.y * s), pr.img.width * s, pr.img.height * s);
+          continue;
+        }
+        const { f, p, walking } = it.actor!;
         const sx = ox + (p.x + 0.5) * TILE * s, sy = oy + (p.y + 1) * TILE * s;
         const size = SPRITE_WORLD * s;
         const bob = walking ? Math.abs(Math.sin(now / 110)) * 2.2 * s * 0.5 : f.sleeping ? 0 : Math.sin(now / 600 + p.x) * 0.6;
-        ctx.fillStyle = 'rgba(0,0,0,.25)';
-        ctx.beginPath(); ctx.ellipse(sx, sy - 2, size * 0.26, size * 0.08, 0, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = 'rgba(10,12,30,.28)';
+        ctx.beginPath(); ctx.ellipse(sx, sy - 2, size * 0.24, size * 0.07, 0, 0, Math.PI * 2); ctx.fill();
         if (f.id === sel || f.id === fo) {
           ctx.strokeStyle = f.id === sel ? '#ffd166' : '#ffffff'; ctx.lineWidth = 2;
-          ctx.beginPath(); ctx.ellipse(sx, sy - 2, size * 0.32, size * 0.11, 0, 0, Math.PI * 2); ctx.stroke();
+          ctx.beginPath(); ctx.ellipse(sx, sy - 2, size * 0.32, size * 0.1, 0, 0, Math.PI * 2); ctx.stroke();
         }
-        // 기기 픽셀 크기에 맞춰 미리 줄여 둔 스프라이트를 1:1로 그린다(선명한 도트)
+        // 32칸 원본 도트를 정수 배율로 키운 스프라이트를 1:1로 그린다(선명한 도트)
         const av = sprites.get(f.id) ?? null;
-        const devPx = Math.round(size * (cv.width / Math.max(1, W)));
+        const devPx = Math.round(size * dpr);
         let memo = spriteMemo.get(f.id);
         if (!memo || memo.av !== av || memo.px !== devPx) { memo = { av, px: devPx, img: avatarSprite(av, devPx) }; spriteMemo.set(f.id, memo); }
         const img = memo.img;
-        if (img) {
-          ctx.save();
-          ctx.globalAlpha = f.sleeping ? 0.75 : 1;
-          ctx.translate(Math.round(sx), Math.round(sy - size * 0.95 - bob));
-          if (f.dir < 0) ctx.scale(-1, 1);
-          const w = img.width / (cv.width / Math.max(1, W));
-          ctx.drawImage(img, Math.round(-w / 2), 0, w, w);
-          ctx.restore();
-        }
+        ctx.save();
+        ctx.globalAlpha = f.sleeping ? 0.8 : 1;
+        const w = img.width / dpr;
+        ctx.translate(snap(sx), snap(sy - w * 0.95 - bob));
+        if (f.dir < 0) ctx.scale(-1, 1);
+        ctx.drawImage(img, snap(-w / 2), 0, w, w);
+        ctx.restore();
       }
-      // 시간대 색
+      // 시간대 색: 곱하기로 물들이고(아침 노랑·저녁 분홍·밤 파랑), 어둠 층은 불빛 자리만 도려낸다
       const tint = PHASE_TINT[phase];
-      if (tint) { ctx.fillStyle = tint; ctx.fillRect(0, 0, W, H); }
-      if (phase === 'night' || phase === 'dawn' || phase === 'evening') {
-        for (const l of lights) {
-          const lx = ox + l.x * s, ly = oy + l.y * s;
-          const g = ctx.createRadialGradient(lx, ly, 0, lx, ly, 10 * s);
-          g.addColorStop(0, 'rgba(255,214,120,.55)'); g.addColorStop(1, 'rgba(255,214,120,0)');
-          ctx.fillStyle = g; ctx.fillRect(lx - 10 * s, ly - 10 * s, 20 * s, 20 * s);
+      if (tint) { ctx.save(); ctx.globalCompositeOperation = 'multiply'; ctx.fillStyle = tint; ctx.fillRect(0, 0, W, H); ctx.restore(); }
+      const darkness = DARKNESS[phase];
+      if (darkness) {
+        if (dark.width !== cv.width || dark.height !== cv.height) { dark.width = cv.width; dark.height = cv.height; }
+        dctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        dctx.globalCompositeOperation = 'source-over';
+        dctx.clearRect(0, 0, W, H);
+        dctx.fillStyle = darkness; dctx.fillRect(0, 0, W, H);
+        dctx.globalCompositeOperation = 'destination-out';
+        const flicker = 0.94 + Math.sin(now / 240) * 0.03;
+        for (const l of scene.lights) {
+          const lx = gx + l.x * s, ly = gy + l.y * s, r = l.r * s * flicker;
+          if (lx < -r || ly < -r || lx > W + r || ly > H + r) continue;
+          const g = dctx.createRadialGradient(lx, ly, 0, lx, ly, r);
+          g.addColorStop(0, 'rgba(0,0,0,.95)'); g.addColorStop(0.45, 'rgba(0,0,0,.55)'); g.addColorStop(1, 'rgba(0,0,0,0)');
+          dctx.fillStyle = g; dctx.fillRect(lx - r, ly - r, r * 2, r * 2);
         }
+        ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.drawImage(dark, 0, 0); ctx.restore();
+        // 불빛 색(더하기) — 창문·가로등 빛이 은은하게 번진다
+        ctx.save(); ctx.globalCompositeOperation = 'lighter';
+        for (const l of scene.lights) {
+          const lx = gx + l.x * s, ly = gy + l.y * s, r = l.r * s * 0.7 * flicker;
+          if (lx < -r || ly < -r || lx > W + r || ly > H + r) continue;
+          const g = ctx.createRadialGradient(lx, ly, 0, lx, ly, r);
+          g.addColorStop(0, `${l.color}.3)`); g.addColorStop(1, `${l.color}0)`);
+          ctx.fillStyle = g; ctx.fillRect(lx - r, ly - r, r * 2, r * 2);
+        }
+        ctx.restore();
       }
       // 글자(맨 위): 장소 이름, 캐릭터 이름·말풍선·상태
       ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
@@ -344,6 +411,7 @@ function VillageCanvas({ map, room, overrides, offset, selected, focus, onTile, 
         ctx.fillStyle = '#fff'; ctx.fillText(label, sx, sy + 9.5);
         const top = sy - size - 4;
         if (f.sleeping) { ctx.font = `700 ${12}px system-ui`; ctx.fillStyle = '#e8ecff'; ctx.fillText('Zz', sx + size * 0.3, top + 4 - Math.sin(now / 500) * 3); }
+        else if (f.woke) { ctx.font = `800 ${15}px system-ui`; ctx.fillStyle = '#ffd166'; ctx.fillText('!', sx + size * 0.28, top + 2 - Math.abs(Math.sin(now / 150)) * 4); }
         else if (f.speech && !walking) bubble(ctx, sx, top, f.speech, '#fff', '#222');
         else if (f.partner && !walking) { ctx.font = '14px serif'; ctx.fillText(Math.floor(now / 1500) % 2 ? '💬' : '♪', sx + size * 0.32, top + 6); }
       }
@@ -351,7 +419,7 @@ function VillageCanvas({ map, room, overrides, offset, selected, focus, onTile, 
     };
     raf = requestAnimationFrame(draw);
     return () => { cancelAnimationFrame(raf); ro.disconnect(); };
-  }, [map, bg, lights, offset]);
+  }, [map, scene, offset]);
 
   // 탭/클릭 = 이동 또는 캐릭터 선택, 끌기 = 화면 이동
   const drag = useRef<{ x: number; y: number; cx: number; cy: number; moved: boolean } | null>(null);
@@ -389,7 +457,11 @@ function VillageCanvas({ map, room, overrides, offset, selected, focus, onTile, 
           if (!d || d.moved) return;
           const { wx, wy } = toWorld(e.clientX, e.clientY);
           // 캐릭터를 눌렀는지 먼저 본다
-          const hit = frames.current.find(f => Math.abs((f.x + 0.5) * TILE - wx) < SPRITE_WORLD * 0.3 && wy < (f.y + 1) * TILE && wy > (f.y + 1) * TILE - SPRITE_WORLD * 0.9);
+          // 보이는 자리(걷는 중 보간 위치)로 판정하고, 겹치면 앞(아래)에 있는 캐릭터를 고른다
+          const hit = frames.current
+            .map(f => ({ f, p: drawn.current.get(f.id) ?? f }))
+            .filter(({ p }) => Math.abs((p.x + 0.5) * TILE - wx) < SPRITE_WORLD * 0.36 && wy < (p.y + 1) * TILE + 3 && wy > (p.y + 1) * TILE - SPRITE_WORLD * 0.95)
+            .sort((a, b) => b.p.y - a.p.y)[0]?.f;
           if (hit && hit.id !== latest.current.selected) { onActor(hit.id); cam.current.follow = true; return; }
           const tx = Math.floor(wx / TILE), ty = Math.floor(wy / TILE);
           if (tx >= 0 && ty >= 0 && tx < map.width && ty < map.height) { onTile(tx, ty); cam.current.follow = true; }
@@ -425,10 +497,13 @@ function bubble(ctx: CanvasRenderingContext2D, x: number, y: number, text: strin
 }
 
 /* ---------------- 패널들 ---------------- */
-function ActorList({ room, map, overrides, offset, focus, onFocus }: { room: RoomView; map: VillageMap; overrides: ActorOverride[]; offset: number; focus: string | null; onFocus: (id: string) => void }) {
+function ActorList({ room, map, overrides, wakes, offset, focus, selected, onFocus, onWake }: {
+  room: RoomView; map: VillageMap; overrides: ActorOverride[]; wakes: WakeMark[]; offset: number; focus: string | null; selected: string | null;
+  onFocus: (id: string) => void; onWake: ((id: string) => void) | null;
+}) {
   const [t, setT] = useState(Date.now());
   useEffect(() => { const i = setInterval(() => setT(Date.now()), 5000); return () => clearInterval(i); }, []);
-  const frames = simulate(map, room.seed, room.actors, overrides, t + offset);
+  const frames = simulate(map, room.seed, room.actors, overrides, t + offset, wakes);
   const placeName = (id: string) => map.places.find(p => p.id === id)?.name ?? '광장';
   return (
     <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'grid', gap: 4 }}>
@@ -437,11 +512,14 @@ function ActorList({ room, map, overrides, offset, focus, onFocus }: { room: Roo
         const status = f.controlled ? '조작 중' : f.sleeping ? `${placeName(f.place)}에서 자는 중` : f.moving ? `${josa(placeName(f.place), '으로/로')} 가는 중` : f.partner ? `${placeName(f.place)}에서 ${josa(room.actors.find(x => x.id === f.partner)?.name ?? '?', '와/과')} 어울리는 중` : `${placeName(f.place)}에 있음`;
         return (
           <li key={a.id}>
-            <button type="button" onClick={() => onFocus(a.id)} className={`village-row${focus === a.id ? ' on' : ''}`}>
-              <span style={{ width: 10, height: 10, borderRadius: 10, background: a.color, flexShrink: 0 }} />
-              <b>{a.name}</b>{a.kind === 'npc' && <small className="village-muted"> NPC{a.role ? `·${a.role}` : ''}</small>}
-              <small className="village-muted" style={{ marginLeft: 'auto', textAlign: 'right' }}>{status}</small>
-            </button>
+            <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+              <button type="button" onClick={() => onFocus(a.id)} className={`village-row${focus === a.id || selected === a.id ? ' on' : ''}`} aria-pressed={selected === a.id}>
+                <span style={{ width: 10, height: 10, borderRadius: 10, background: a.color, flexShrink: 0 }} />
+                <b>{selected === a.id ? '🎮 ' : ''}{a.name}</b>{a.kind === 'npc' && <small className="village-muted"> NPC{a.role ? `·${a.role}` : ''}</small>}
+                <small className="village-muted" style={{ marginLeft: 'auto', textAlign: 'right' }}>{status}</small>
+              </button>
+              {f.sleeping && onWake && <button type="button" className="village-chip" style={{ minHeight: 32, minWidth: 36, padding: '4px 8px', flexShrink: 0 }} onClick={() => onWake(a.id)} aria-label={`${a.name} 깨우기`} title={`${a.name} 깨우기`}>⏰</button>}
+            </div>
           </li>
         );
       })}
@@ -463,6 +541,7 @@ function Feed({ room, events }: { room: RoomView; events: RoomEvent[] }) {
           {e.type === 'gift' && <>🎁 <b>{name(e.from)}</b> → <b>{name(e.to)}</b>: {gift(e.item)?.icon} {gift(e.item)?.label}</>}
           {e.type === 'message' && <>{era.id === 'sf' ? '📡' : era.id === 'past' ? '✉️' : '📱'} <b>{josa(name(e.from), '이/가')}</b> <b>{name(e.to)}</b>에게 {era.verb}</>}
           {e.type === 'game' && <>🎲 <b>{name(e.from)}</b> — {MINIGAMES.find(g => g.id === e.game)?.label} {e.score}점</>}
+          {e.type === 'wake' && (e.from === e.to ? <>⏰ <b>{josa(name(e.from), '이/가')}</b> 잠에서 깼어요</> : <>⏰ <b>{josa(name(e.from), '이/가')}</b> <b>{josa(name(e.to), '을/를')}</b> 깨웠어요</>)}
         </li>
       ))}
     </ul>

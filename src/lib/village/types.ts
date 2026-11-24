@@ -67,7 +67,7 @@ export interface RoomView {
 export interface ActorOverride { id: string; x: number; y: number; at: number; by: string }
 export interface RoomEvent {
   id: string;
-  type: 'message' | 'gift' | 'game';
+  type: 'message' | 'gift' | 'game' | 'wake';   // wake: from이 to를 깨웠다(from === to면 스스로 일어남)
   from: string;
   to?: string;
   text?: string;

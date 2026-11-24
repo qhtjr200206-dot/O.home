@@ -6,6 +6,10 @@ import type { ActorOverride, RoomActor } from './types';
 export const BLOCK_MS = 10 * 60 * 1000;     // 10분마다 새 목적지
 export const STEP_MS = 650;                 // 한 칸 걷는 시간
 export const CONTROL_MS = 5 * 60 * 1000;    // 조작을 멈추고 5분 뒤 자율 행동으로 돌아간다
+/** 깨운 뒤 깨어 있는 시간 (v2.0 사용자 요청 — 자는 캐릭터도 깨워서 상호작용) */
+export const WAKE_MS = 30 * 60 * 1000;
+/** 막 깨어난 표시('!')를 보여 주는 시간 */
+export const WOKE_SHOW_MS = 8 * 1000;
 const SPEECH_MS = 45 * 1000;
 const SPEECH_SHOW_MS = 7 * 1000;
 
@@ -36,6 +40,18 @@ export interface ActorFrame {
   place: string;        // 현재 있거나 향하는 장소 id ('' = 광장)
   speech?: string;
   partner?: string;     // 같은 장소에서 어울리는 상대
+  woke?: boolean;       // 방금 누가 깨웠다(잠깐 '!' 표시)
+}
+/** 깨우기 기록 — 캐릭터마다 마지막으로 깨운 시각(서버가 정한 시각) */
+export interface WakeMark { id: string; at: number }
+/** 시각 t에 깨어 있게 만드는 가장 최근 깨우기(없으면 null). 미래 시각 기록은 시계 차이 1분까지만 인정한다 */
+export function activeWake(wakes: WakeMark[] | undefined, id: string, t: number): WakeMark | null {
+  let best: WakeMark | null = null;
+  for (const w of wakes ?? []) {
+    if (w.id !== id || !Number.isFinite(w.at) || t - w.at >= WAKE_MS || t < w.at - 60_000) continue;
+    if (!best || w.at > best.at) best = w;
+  }
+  return best;
 }
 
 function placeTile(map: VillageMap, placeId: string) {
@@ -103,7 +119,7 @@ function cachedPath(map: VillageMap, seed: string, a: { x: number; y: number }, 
 }
 
 /** 시각 t의 모든 배우 위치·대사·상호작용 */
-export function simulate(map: VillageMap, seed: string, actors: RoomActor[], overrides: ActorOverride[], t: number): ActorFrame[] {
+export function simulate(map: VillageMap, seed: string, actors: RoomActor[], overrides: ActorOverride[], t: number, wakes: WakeMark[] = []): ActorFrame[] {
   const block = Math.floor(t / BLOCK_MS);
   const phase = phaseAt(t);
   const takenPrev = new Set<string>(), takenNow = new Set<string>();
@@ -132,8 +148,13 @@ export function simulate(map: VillageMap, seed: string, actors: RoomActor[], ove
         moving = true;
       }
     } else if (!path.length) { x = to.x; y = to.y; }
-    const sleeping = (phase === 'dawn' || (phase === 'night' && hash(`${seed}|nightowl|${a.id}`) < 0.6)) && !moving;
-    return { id: a.id, x, y, dir, moving, sleeping, controlled: false, place: t < startAt && path.length ? prevPlace : place };
+    // 누가 깨웠으면 WAKE_MS 동안은 잠들지 않는다 — 자는 자리(집)에서 깨어 서 있고, 말풍선·어울리기도 다시 한다
+    const wake = activeWake(wakes, a.id, t);
+    const sleeping = (phase === 'dawn' || (phase === 'night' && hash(`${seed}|nightowl|${a.id}`) < 0.6)) && !moving && !wake;
+    return {
+      id: a.id, x, y, dir, moving, sleeping, controlled: false, place: t < startAt && path.length ? prevPlace : place,
+      ...(wake && t - wake.at < WOKE_SHOW_MS ? { woke: true } : {}),
+    };
   });
   // 같은 장소에 도착한 깨어 있는 배우끼리 짝을 지어 어울린다
   const byPlace = new Map<string, ActorFrame[]>();

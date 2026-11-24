@@ -6,7 +6,7 @@
 
 ## 저장 위치와 직접 접근
 
-- `village_rooms/{roomId}`(방·scrypt 해시·인스턴스·비밀번호 버전·캐릭터 원본 식별), 하위 `pos`·`events`·`scores`·`limits`·`games`,
+- `village_rooms/{roomId}`(방·scrypt 해시·인스턴스·비밀번호 버전·캐릭터 원본 식별), 하위 `pos`·`events`·`scores`·`limits`·`games`·`wake`(깨운 시각 — 서버가 시뮬레이션으로 자는지 확인한 뒤에만 씀),
   `village_owner_slots/{uid}`, `village_join_tries/{hash}`, `village_cleanup/{roomId}` — 모두 Admin SDK(서버) 전용.
 - 운영 규칙(`firebase/firestore.production.rules`)과 설치 규칙(`firebase/firestore.rules`)은 목록에 없는 컬렉션을
   아무에게도 열지 않는다. 규칙을 바꾸지 않고도 클라이언트 직접 읽기·쓰기가 거부된다(에뮬레이터에서 두 규칙 파일 그대로 검증,
