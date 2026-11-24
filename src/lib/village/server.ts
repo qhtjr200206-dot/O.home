@@ -206,11 +206,13 @@ const NPC_COLORS = ['#7a8b99', '#9a7b6a', '#6f8f72', '#8d7aa3', '#a58a5a', '#5f8
 
 export async function createRoom(c: Ctx, uid: string, raw: unknown): Promise<{ roomId: string; token: string }> {
   if (!uid) fail('로그인이 필요합니다', 401);
+  // 관리자는 비밀번호 쉬운 규칙 검사를 건너뛴다 (길이만) — 트랜잭션에서 관리자 여부를 다시 확인한다
+  const adminFirst = await isAdmin(c.db, uid);
   let input: ReturnType<typeof parseCreateRoom>;
-  try { input = parseCreateRoom(raw); } catch (e) { return fail((e as Error).message, 400); }
+  try { input = parseCreateRoom(raw, adminFirst); } catch (e) { return fail((e as Error).message, 400); }
   if (input!.chars.some(ch => ch.id.startsWith('npc:'))) fail('예약된 캐릭터 id입니다', 400);
   // 비싼 비밀번호 해시 전에 가볍게 한도를 확인한다(최종 판정은 아래 트랜잭션)
-  if (!(await isAdmin(c.db, uid)) && !(await c.db.collection(ROOMS).where('ownerUid', '==', uid).limit(1).get()).empty) {
+  if (!adminFirst && !(await c.db.collection(ROOMS).where('ownerUid', '==', uid).limit(1).get()).empty) {
     fail('이미 만든 방이 있습니다 — 그 방을 삭제하면 다시 만들 수 있어요', 409);
   }
   const pwHash = await hashRoomPassword(input!.password);
@@ -226,6 +228,8 @@ export async function createRoom(c: Ctx, uid: string, raw: unknown): Promise<{ r
     // 바뀌거나 관리자에서 내려가면 트랜잭션이 충돌해 다시 판정된다. 슬롯 문서를 항상 써서 같은 사용자의
     // 동시 생성·삭제도 직렬화된다.
     const adminNow = await isAdmin(c.db, uid, tx);
+    // 그 사이 관리자에서 내려갔다면 회원 비밀번호 규칙을 다시 적용한다
+    if (!adminNow && passwordProblem(input!.password)) fail(passwordProblem(input!.password)!, 400);
     // 자관에 적힌 캐릭터 대사(멤버 quote) — 남의 캐릭터에는 이 원문 대사만 넣을 수 있다
     const relQuotes = new Map<string, string>();
     if (input!.relId) {
@@ -594,11 +598,14 @@ async function rateCheck(tx: Transaction, room: DocumentReference, uid: string, 
   return () => tx.set(r, { since: active ? d!.since : t, n: n + 1 });
 }
 
-/* ---------------- 비밀번호 변경(방 주인·관리자) — 기존 세션 모두 폐기 ---------------- */
+/* ---------------- 비밀번호 변경(방 주인·관리자) — 기존 세션 모두 폐기 ----------------
+ * 지금 비밀번호를 몰라도 된다: 로그인한 방 주인·관리자인지만 본다. 비밀번호를 잊으면 방 목록에서 바로 재설정한다
+ * (v2.1 사용자 요청 — 예전 화면은 방에 들어가야만 바꿀 수 있어 잊으면 방법이 없었다). */
 export async function changePassword(c: Ctx, uid: string, roomId: unknown, password: unknown): Promise<{ token: string }> {
   if (!uid) fail('로그인이 필요합니다', 401);
   if (!validRoomId(roomId)) fail('잘못된 방입니다', 400);
-  const problem = passwordProblem(password);
+  const adminFirst = await isAdmin(c.db, uid);
+  const problem = passwordProblem(password, adminFirst);
   if (problem) fail(problem, 400);
   const ref = c.db.collection(ROOMS).doc(roomId as string);
   const before = (await ref.get()).data();
@@ -616,6 +623,7 @@ export async function changePassword(c: Ctx, uid: string, roomId: unknown, passw
     const room = snap.data();
     if (!snap.exists || !room || room.status !== 'active') fail('방을 찾을 수 없습니다', 404);
     if (room!.ownerUid !== uid && !adminNow) fail('방을 만든 사람이나 관리자만 바꿀 수 있습니다', 403);
+    if (!adminNow && passwordProblem(password)) fail(passwordProblem(password)!, 400);
     const v = (Number(room!.passwordVersion) || 1) + 1;
     tx.update(ref, { pwHash, passwordVersion: v, updatedAt: now(c) });
     return { token: signSession(c.key, { r: roomId as string, i: room!.instance, v, u: uid, e: now(c) + SESSION_MS }) };

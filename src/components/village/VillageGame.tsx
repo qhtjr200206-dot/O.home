@@ -235,7 +235,7 @@ export function VillageGame({ roomId, loggedIn, isAdmin, onLeave, onNeedPassword
         {(room.isOwner || isAdmin) && (
           <section className="village-card">
             <h3>방 관리</h3>
-            <ManagePanel roomId={roomId} onDeleted={onLeave} onToken={tok => { roomToken.set(roomId, tok); setToast('비밀번호를 바꿨어요 — 다른 사람은 새 비밀번호로 다시 들어와야 합니다'); }} />
+            <ManagePanel roomId={roomId} isAdmin={isAdmin} onDeleted={onLeave} onToken={tok => { roomToken.set(roomId, tok); setToast('비밀번호를 바꿨어요 — 다른 사람은 새 비밀번호로 다시 들어와야 합니다'); }} />
           </section>
         )}
       </aside>
@@ -654,8 +654,9 @@ function GamePanel({ room, actor, scores, start, submit, flip, onMemoryDone }: {
   );
 }
 
-function ManagePanel({ roomId, onDeleted, onToken }: { roomId: string; onDeleted: () => void; onToken: (t: string) => void }) {
+function ManagePanel({ roomId, isAdmin, onDeleted, onToken }: { roomId: string; isAdmin: boolean; onDeleted: () => void; onToken: (t: string) => void }) {
   const [pw, setPw] = useState('');
+  const pwMin = isAdmin ? LIMITS.adminPasswordMin : LIMITS.passwordMin;
   const [msg, setMsg] = useState('');
   const [confirming, setConfirming] = useState(false);
   return (
@@ -666,8 +667,8 @@ function ManagePanel({ roomId, onDeleted, onToken }: { roomId: string; onDeleted
         try { const r = await villageApi<{ token: string }>('password', { roomId, password: pw }); onToken(r.token); setPw(''); }
         catch (err) { setMsg((err as Error).message); }
       }} style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-        <input type="password" autoComplete="new-password" aria-label="새 방 비밀번호" placeholder={`새 비밀번호 (${LIMITS.passwordMin}자 이상)`} value={pw} minLength={LIMITS.passwordMin} maxLength={LIMITS.passwordMax} onChange={e => setPw(e.target.value)} style={{ flex: 1, minWidth: 140 }} />
-        <button className="btn btn-ghost" disabled={pw.length < LIMITS.passwordMin}>비밀번호 변경</button>
+        <input type="password" autoComplete="new-password" aria-label="새 방 비밀번호" placeholder={`새 비밀번호 (${pwMin}자 이상)`} value={pw} minLength={pwMin} maxLength={LIMITS.passwordMax} onChange={e => setPw(e.target.value)} style={{ flex: 1, minWidth: 140 }} />
+        <button className="btn btn-ghost" disabled={pw.length < pwMin}>비밀번호 변경</button>
       </form>
       {!confirming ? <button className="btn btn-ghost" onClick={() => setConfirming(true)}>방 삭제…</button> : (
         <div role="alertdialog" aria-label="방 삭제 확인" style={{ display: 'grid', gap: 6 }}>

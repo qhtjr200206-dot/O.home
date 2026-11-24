@@ -128,4 +128,18 @@ const actors = ['a', 'b', 'c'].map((id, i) => ({ id, kind: 'char', name: id, col
   clock = NOON;
   await assert.rejects(server.act(c, room, owner.token, OWNER, { type: 'wake', actor: 'charA', to: 'charA' }), e => e.status === 409);
   console.log('village wake ok');
+
+  // 비밀번호 재설정 (v2.1 사용자 요청): 지금 비밀번호 없이 방 주인·관리자만. 관리자는 쉬운 비밀번호(길이 4~64)도 허용
+  const types = require(path.join(root, 'src/lib/village/types.ts'));
+  assert.ok(types.passwordProblem('000000'), '회원 기준으로는 000000 거부');
+  assert.equal(types.passwordProblem('000000', true), null, '관리자는 000000 허용');
+  assert.ok(types.passwordProblem('000', true), '관리자도 4자 미만은 거부');
+  await assert.rejects(server.changePassword(c, STRANGER, room, 'new-pass-9876'), e => e.status === 403, '남은 못 바꾼다');
+  await assert.rejects(server.changePassword(c, OWNER, room, '000000'), e => e.status === 400, '방 주인(회원)은 쉬운 비밀번호 불가');
+  await server.changePassword(c, OWNER, room, 'new-pass-9876');
+  await assert.rejects(server.roomState(c, room, member.token, MEMBER, 0), e => e.status === 401, '바꾸면 기존 세션 무효');
+  await server.changePassword(c, 'adminUid0000', room, '000000');
+  await server.joinRoom(c, room, '000000', MEMBER);
+  await assert.rejects(server.joinRoom(c, room, 'new-pass-9876', STRANGER), e => e.status === 401 || e.status === 403);
+  console.log('village password reset ok');
 })().catch(e => { console.error(e); process.exit(1); });

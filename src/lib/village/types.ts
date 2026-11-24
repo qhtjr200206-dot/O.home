@@ -81,6 +81,8 @@ export interface RoomSummary { id: string; name: string; era: VillageEra; mine: 
 export const LIMITS = {
   name: 40, worldview: 600, places: 12, placeName: 24, actors: 12, npcs: 8, lines: 8, line: 80,
   role: 24, message: 300, passwordMin: 8, passwordMax: 64,
+  /** 관리자가 정하는 비밀번호 최소 길이 — 관리자는 쉬운 규칙 검사를 건너뛴다 (v2.1 사용자 요청: 테스트 방 000000) */
+  adminPasswordMin: 4,
 };
 
 /** 제어 문자는 공백으로, 양방향 재배치·zero-width 문자는 지운다(표시 위조 방지). 메시지 본문과 같은 기준 */
@@ -101,7 +103,7 @@ export interface CreateRoomInput {
 }
 
 /** 신뢰하지 않는 입력을 정규화한다. 문제가 있으면 오류 문구를 던진다. */
-export function parseCreateRoom(raw: unknown): CreateRoomInput {
+export function parseCreateRoom(raw: unknown, adminPassword = false): CreateRoomInput {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw new Error('잘못된 요청입니다');
   const o = raw as Record<string, unknown>;
   const name = str(o.name, LIMITS.name);
@@ -109,7 +111,7 @@ export function parseCreateRoom(raw: unknown): CreateRoomInput {
   if (!ERAS.some(e => e.id === o.era)) throw new Error('세계관 시대를 골라 주세요');
   const era = o.era as VillageEra;
   const worldview = str(o.worldview, LIMITS.worldview);
-  const problem = passwordProblem(o.password);
+  const problem = passwordProblem(o.password, adminPassword);
   if (problem) throw new Error(problem);
   const relId = str(o.relId, 200);
   if (relId && !validDocId(relId)) throw new Error('잘못된 자관입니다');
@@ -151,8 +153,16 @@ const COMMON_PASSWORDS = new Set([
   'qwerty123', '1q2w3e4r', '1q2w3e4r5t', 'abcd1234', 'abc12345', 'asdf1234', 'iloveyou', 'sunshine', 'princess', 'football',
   'baseball', 'superman', 'trustno1', 'letmein1', 'welcome1', 'admin123', 'qwer1234', 'zxcv1234', 'aaaa1111', 'a1234567',
 ]);
-/** 방 비밀번호 규칙 — 8~64자, 같은 글자 반복·숫자만 9자 이하·흔한 비밀번호 거부. 문제가 없으면 null */
-export function passwordProblem(p: unknown): string | null {
+/**
+ * 방 비밀번호 규칙 — 8~64자, 같은 글자 반복·숫자만 9자 이하·흔한 비밀번호 거부. 문제가 없으면 null.
+ * admin이면 길이(4~64자)만 본다 — 사이트 주인이 자기 테스트 방에 쉬운 비밀번호를 쓰겠다고 한 것 (v2.1 사용자 요청).
+ * 회원 방은 그대로 엄격하다(남의 캐릭터가 들어가는 방이라 추측 공격을 막아야 함).
+ */
+export function passwordProblem(p: unknown, admin = false): string | null {
+  if (admin) {
+    return typeof p === 'string' && p.length >= LIMITS.adminPasswordMin && p.length <= LIMITS.passwordMax
+      ? null : `방 비밀번호는 ${LIMITS.adminPasswordMin}~${LIMITS.passwordMax}자로 정해 주세요`;
+  }
   if (typeof p !== 'string' || p.length < LIMITS.passwordMin || p.length > LIMITS.passwordMax) {
     return `방 비밀번호는 ${LIMITS.passwordMin}~${LIMITS.passwordMax}자로 정해 주세요`;
   }

@@ -5,6 +5,7 @@ import type { Character, Relation } from '@/lib/charStore';
 import { ERAS, LIMITS, PERSONALITIES, type Personality, type VillageEra } from '@/lib/village/types';
 import { villageApi, roomToken } from '@/lib/village/client';
 import { useMembers } from '@/lib/members';
+import { useAuth } from '@/lib/auth';
 
 type CharCfg = { personality: Personality; home: string; lines: string; allow: string[] };
 type NpcCfg = { name: string; role: string; personality: Personality; home: string; lines: string };
@@ -15,6 +16,9 @@ const input: React.CSSProperties = { width: '100%', boxSizing: 'border-box', pad
 export function CreateRoomForm({ chars, rels, onCreated, onCancel }: {
   chars: Character[]; rels: Relation[]; onCreated: (roomId: string) => void; onCancel: () => void;
 }) {
+  // 관리자는 비밀번호 길이만 검사한다 (서버도 같은 기준 — v2.1 사용자 요청)
+  const { isAdmin } = useAuth();
+  const pwMin = isAdmin ? LIMITS.adminPasswordMin : LIMITS.passwordMin;
   const [name, setName] = useState('');
   const [era, setEra] = useState<VillageEra>('modern');
   const [worldview, setWorldview] = useState('');
@@ -170,8 +174,8 @@ export function CreateRoomForm({ chars, rels, onCreated, onCancel }: {
         })}
         {npcs.length < LIMITS.npcs && <button type="button" className="btn btn-ghost" onClick={() => setNpcs(l => [...l, { name: '', role: '', personality: 'curious', home: '', lines: '' }])}>＋ NPC 추가</button>}
       </fieldset>
-      <label style={field}>방 비밀번호 ({LIMITS.passwordMin}~{LIMITS.passwordMax}자 — 들어오는 사람 모두 이 비밀번호가 필요합니다)
-        <input style={input} type="password" autoComplete="new-password" required minLength={LIMITS.passwordMin} maxLength={LIMITS.passwordMax} value={password} onChange={e => setPassword(e.target.value)} />
+      <label style={field}>방 비밀번호 ({pwMin}~{LIMITS.passwordMax}자 — 들어오는 사람 모두 이 비밀번호가 필요합니다)
+        <input style={input} type="password" autoComplete="new-password" required minLength={pwMin} maxLength={LIMITS.passwordMax} value={password} onChange={e => setPassword(e.target.value)} />
       </label>
       {error && <p role="alert" style={{ color: 'var(--accent)', margin: 0 }}>{error}</p>}
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>

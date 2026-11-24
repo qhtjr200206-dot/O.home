@@ -5,13 +5,14 @@ import { useAuth } from '@/lib/auth';
 import { backend, isServerMode } from '@/lib/backend';
 import { useLocalList } from '@/lib/postStore';
 import { CHAR_SEED, REL_SEED, type Character, type Relation } from '@/lib/charStore';
-import { ERAS, type RoomSummary, type VillageEra } from '@/lib/village/types';
+import { ERAS, LIMITS, type RoomSummary, type VillageEra } from '@/lib/village/types';
 import { villageApi, roomToken, VillageApiError } from '@/lib/village/client';
 import { CreateRoomForm } from '@/components/village/CreateRoomForm';
 import { VillageGame } from '@/components/village/VillageGame';
 import { PageTitle } from '@/components/ui/PageText';
 
-type Mode = { kind: 'lobby' } | { kind: 'create' } | { kind: 'join'; room: RoomSummary; msg?: string } | { kind: 'play'; roomId: string };
+type Mode = { kind: 'lobby' } | { kind: 'create' } | { kind: 'join'; room: RoomSummary; msg?: string } | { kind: 'play'; roomId: string }
+  | { kind: 'reset'; room: RoomSummary };
 
 export default function VillagePage() {
   const { user, isAdmin, ready } = useAuth();
@@ -81,6 +82,12 @@ export default function VillagePage() {
                     <small className="village-muted">{eraLabel(r.era)}{r.mine ? ' · 내 방' : ''}</small>
                     <small className="village-muted">🔒 비밀번호 필요</small>
                   </button>
+                  {/* 비밀번호를 잊어도 방 주인·관리자는 들어가지 않고 바로 재설정할 수 있다 (v2.1 사용자 요청) */}
+                  {user && (r.mine || isAdmin) && (
+                    <button type="button" className="btn btn-ghost village-room-reset" onClick={() => setMode({ kind: 'reset', room: r })}>
+                      비밀번호 재설정
+                    </button>
+                  )}
                 </li>
               ))}
             </ul>
@@ -96,6 +103,11 @@ export default function VillagePage() {
 
       {server === 'ok' && mode.kind === 'join' && (
         <JoinForm room={mode.room} msg={mode.msg} onCancel={() => setMode({ kind: 'lobby' })} onJoined={() => setMode({ kind: 'play', roomId: mode.room.id })} />
+      )}
+
+      {server === 'ok' && mode.kind === 'reset' && (
+        <ResetForm room={mode.room} isAdmin={isAdmin} onCancel={() => setMode({ kind: 'lobby' })}
+          onDone={token => { roomToken.set(mode.room.id, token); setMode({ kind: 'play', roomId: mode.room.id }); }} />
       )}
 
       {server === 'ok' && mode.kind === 'play' && (
@@ -132,6 +144,41 @@ function JoinForm({ room, msg, onJoined, onCancel }: { room: RoomSummary; msg?: 
       {err && <p role="alert" style={{ margin: 0, color: 'var(--accent)' }}>{err}</p>}
       <div style={{ display: 'flex', gap: 8 }}>
         <button className="btn btn-dark" disabled={busy || !pw}>{busy ? '확인 중…' : '들어가기'}</button>
+        <button type="button" className="btn btn-ghost" onClick={onCancel}>목록으로</button>
+      </div>
+    </form>
+  );
+}
+
+/** 비밀번호 재설정 — 지금 비밀번호 없이, 로그인한 방 주인·관리자만 (서버가 다시 확인) */
+function ResetForm({ room, isAdmin, onDone, onCancel }: { room: RoomSummary; isAdmin: boolean; onDone: (token: string) => void; onCancel: () => void }) {
+  const [pw, setPw] = useState('');
+  const [pw2, setPw2] = useState('');
+  const [err, setErr] = useState('');
+  const [busy, setBusy] = useState(false);
+  const min = isAdmin ? LIMITS.adminPasswordMin : LIMITS.passwordMin;
+  const input: React.CSSProperties = { padding: '8px 10px', borderRadius: 8, border: '1px solid var(--line)', font: 'inherit' };
+  return (
+    <form className="village-card" style={{ display: 'grid', gap: 10, maxWidth: 420 }} onSubmit={async e => {
+      e.preventDefault(); setErr('');
+      if (pw !== pw2) { setErr('두 비밀번호가 다릅니다'); return; }
+      setBusy(true);
+      try { onDone((await villageApi<{ token: string }>('password', { roomId: room.id, password: pw })).token); }
+      catch (x) { setErr((x as Error).message); } finally { setBusy(false); }
+    }}>
+      <h2 style={{ margin: 0, fontSize: 18 }}>🔑 {room.name} — 비밀번호 재설정</h2>
+      <p className="village-muted" style={{ margin: 0 }}>
+        지금 비밀번호를 몰라도 바꿀 수 있습니다. 바꾸면 방에 있던 다른 사람은 새 비밀번호로 다시 들어와야 해요.
+      </p>
+      <label style={{ display: 'grid', gap: 4 }}>새 비밀번호 ({min}~{LIMITS.passwordMax}자)
+        <input type="password" autoComplete="new-password" autoFocus required minLength={min} maxLength={LIMITS.passwordMax} value={pw} onChange={e => setPw(e.target.value)} style={input} />
+      </label>
+      <label style={{ display: 'grid', gap: 4 }}>새 비밀번호 확인
+        <input type="password" autoComplete="new-password" required value={pw2} onChange={e => setPw2(e.target.value)} style={input} />
+      </label>
+      {err && <p role="alert" style={{ margin: 0, color: 'var(--accent)' }}>{err}</p>}
+      <div style={{ display: 'flex', gap: 8 }}>
+        <button className="btn btn-dark" disabled={busy || pw.length < min || !pw2}>{busy ? '바꾸는 중…' : '바꾸고 들어가기'}</button>
         <button type="button" className="btn btn-ghost" onClick={onCancel}>목록으로</button>
       </div>
     </form>
