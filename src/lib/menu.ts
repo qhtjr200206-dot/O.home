@@ -30,7 +30,7 @@ export const FEATURES: { href: string; label: string }[] = [
   { href: '/tools/log-editor', label: '로그 편집기' },   // 도구 — 세션 로그 판정 정리
   { href: '/guest', label: '방명록' },
   { href: '/intro', label: '소개' },
-  { href: '/cover', label: '커버 메이커' },   // 초대 코드제 — 기본 메뉴에는 넣지 않음
+  { href: '/cover', label: '커버 메이커' },   // 초대 코드제 — 도구 메뉴에 둔다 (관리자·초대받은 사람만 들어감)
 ];
 
 export const DEFAULT_MENU: MenuItem[] = [
@@ -80,6 +80,7 @@ export const DEFAULT_MENU: MenuItem[] = [
     label: '도구',
     children: [
       { label: '로그 편집기', href: '/tools/log-editor' },
+      { label: '커버 편집기', href: '/cover' },
     ],
   },
   { label: '방명록', href: '/guest' },
