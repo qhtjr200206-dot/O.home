@@ -2,8 +2,9 @@
 
 import React, { useId, useMemo, useState } from 'react';
 import {
-  BODY_STYLE_NAMES, DEFAULT_EYE_COLOR, DEFAULT_PIXEL_AVATAR, FACE_STYLE_NAMES, HAIR_STYLE_NAMES, PIXEL_AVATAR_SIZE, PIXEL_STYLE_COUNT,
-  normalizeHexColor, normalizePixelAvatar, pixelAvatarPixels, type PixelAvatarData,
+  BACK_HAIR_COUNT, BACK_HAIR_NAMES, BODY_STYLE_NAMES, DEFAULT_EYE_COLOR, DEFAULT_PIXEL_AVATAR, FACE_STYLE_NAMES, FRONT_HAIR_COUNT,
+  FRONT_HAIR_NAMES, PIXEL_AVATAR_SIZE, PIXEL_STYLE_COUNT, SHORT_HAIR_COUNT,
+  normalizeHexColor, normalizePixelAvatar, pixelAvatarLabel, pixelAvatarPixels, type PixelAvatarData,
 } from './pixelAvatarArt';
 
 // Rendering lives in the DOM-free ./pixelAvatarArt module (128 × 128 native
@@ -11,7 +12,7 @@ import {
 // re-exports keep existing imports of this file working.
 export type { PixelAvatarData } from './pixelAvatarArt';
 export {
-  DEFAULT_PIXEL_AVATAR, PIXEL_AVATAR_SIZE, HAIR_STYLE_NAMES, FACE_STYLE_NAMES, BODY_STYLE_NAMES,
+  DEFAULT_PIXEL_AVATAR, PIXEL_AVATAR_SIZE, HAIR_STYLE_NAMES, BACK_HAIR_NAMES, FRONT_HAIR_NAMES, FACE_STYLE_NAMES, BODY_STYLE_NAMES,
   normalizeHexColor, normalizePixelAvatar, pixelAvatarPixels, pixelAvatarRGBA,
 } from './pixelAvatarArt';
 
@@ -32,9 +33,9 @@ function svgPaths(pixels: Uint32Array) {
 
 export function PixelAvatar({ value, size = 120 }: { value: PixelAvatarData; size?: number }) {
   const v = normalizePixelAvatar(value);
-  const key = [v.hair, v.face, v.body, v.hairColor, v.skinColor, v.bodyColor, v.eyeColor].join('|');
-  const paths = useMemo(() => svgPaths(pixelAvatarPixels(v).pixels), [key]);
-  const label = `도트 캐릭터: ${HAIR_STYLE_NAMES[v.hair]}, ${FACE_STYLE_NAMES[v.face]}, ${BODY_STYLE_NAMES[v.body]}`;
+  const key = [v.back, v.front, v.face, v.body, v.hairColor, v.skinColor, v.bodyColor, v.eyeColor].join('|');
+  const paths = useMemo(() => svgPaths(pixelAvatarPixels(v).pixels), [key]); // eslint-disable-line react-hooks/exhaustive-deps
+  const label = pixelAvatarLabel(v);
   return <svg role="img" aria-label={label} viewBox={`0 0 ${PIXEL_AVATAR_SIZE} ${PIXEL_AVATAR_SIZE}`} width={size} height={size} shapeRendering="crispEdges"
     style={{ imageRendering: 'pixelated', flexShrink: 0, maxWidth: '100%', height: 'auto' }}>
     {paths.map(p => <path key={p.fill} fill={p.fill} d={p.d} />)}
@@ -64,13 +65,23 @@ function ColorField({ label, value, onChange }: { label: string; value: string; 
   </div>;
 }
 
-const PARTS = [['hair', '머리', HAIR_STYLE_NAMES], ['face', '표정', FACE_STYLE_NAMES], ['body', '몸', BODY_STYLE_NAMES]] as const;
+// 앞머리·뒷머리를 따로 고른다 (v2.1 사용자 요청) — 뒷머리는 단발 20 / 장발 20 묶음으로
+type PartKey = 'back' | 'front' | 'face' | 'body';
+const PARTS: readonly { key: PartKey; label: string; count: number; groups: readonly { label?: string; from: number; names: readonly string[] }[] }[] = [
+  { key: 'back', label: '뒷머리', count: BACK_HAIR_COUNT, groups: [
+    { label: '단발', from: 0, names: BACK_HAIR_NAMES.slice(0, SHORT_HAIR_COUNT) },
+    { label: '장발', from: SHORT_HAIR_COUNT, names: BACK_HAIR_NAMES.slice(SHORT_HAIR_COUNT) },
+  ] },
+  { key: 'front', label: '앞머리', count: FRONT_HAIR_COUNT, groups: [{ from: 0, names: FRONT_HAIR_NAMES }] },
+  { key: 'face', label: '표정', count: PIXEL_STYLE_COUNT, groups: [{ from: 0, names: FACE_STYLE_NAMES }] },
+  { key: 'body', label: '옷', count: PIXEL_STYLE_COUNT, groups: [{ from: 0, names: BODY_STYLE_NAMES }] },
+];
 const COLORS = [['hairColor', '머리색'], ['eyeColor', '눈 색'], ['skinColor', '피부색'], ['bodyColor', '옷 색']] as const;
 
 export function PixelAvatarEditor({ value, onChange }: { value?: PixelAvatarData; onChange: (v: PixelAvatarData | undefined) => void }) {
   const id = useId();
   const v = normalizePixelAvatar(value ?? DEFAULT_PIXEL_AVATAR);
-  const step = (key: 'hair' | 'face' | 'body', d: number) => onChange({ ...v, [key]: (v[key] + d + PIXEL_STYLE_COUNT) % PIXEL_STYLE_COUNT });
+  const step = (key: PartKey, count: number, d: number) => onChange({ ...v, [key]: (v[key] + d + count) % count });
   const btn: React.CSSProperties = { minWidth: 36, minHeight: 36, padding: '0 8px' };
   // minWidth 0 everywhere: lets the parent grid shrink us so rows wrap on 390px phones.
   return <div style={{ display: 'grid', gap: 10, color: 'var(--ink)', minWidth: 0 }}>
@@ -82,18 +93,21 @@ export function PixelAvatarEditor({ value, onChange }: { value?: PixelAvatarData
             <PixelAvatar value={v} size={256} />
           </div>
           <figure style={{ margin: 0, display: 'grid', justifyItems: 'center', gap: 2 }}>
-            <PixelAvatar value={v} size={PIXEL_AVATAR_SIZE} />
-            <figcaption style={{ fontSize: 11, color: 'var(--faint)' }}>원본 128×128 (1배)</figcaption>
+            <PixelAvatar value={v} size={64} />
+            <figcaption style={{ fontSize: 11, color: 'var(--faint)' }}>실제 크기 (원본 32×32 도트)</figcaption>
           </figure>
         </div>
         <div style={{ display: 'grid', gap: 8, flex: '1 1 260px', minWidth: 0 }}>
-          {PARTS.map(([key, label, names]) => <div key={key} style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-            <label htmlFor={id + key} style={{ minWidth: 32 }}>{label}</label>
-            <button type="button" className="btn btn-ghost" style={btn} aria-label={`이전 ${label}`} onClick={() => step(key, -1)}>‹</button>
+          {PARTS.map(({ key, label, count, groups }) => <div key={key} style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+            <label htmlFor={id + key} style={{ minWidth: 44 }}>{label}</label>
+            <button type="button" className="btn btn-ghost" style={btn} aria-label={`이전 ${label}`} onClick={() => step(key, count, -1)}>‹</button>
             <select id={id + key} value={v[key]} onChange={e => onChange({ ...v, [key]: Number(e.target.value) })} style={{ flex: '1 1 140px', minWidth: 0, minHeight: 36 }}>
-              {names.map((name, n) => <option key={n} value={n}>{label} {n + 1} · {name}</option>)}
+              {groups.map(gr => {
+                const opts = gr.names.map((name, n) => <option key={gr.from + n} value={gr.from + n}>{gr.label ?? label} {n + 1} · {name}</option>);
+                return gr.label ? <optgroup key={gr.label} label={gr.label}>{opts}</optgroup> : opts;
+              })}
             </select>
-            <button type="button" className="btn btn-ghost" style={btn} aria-label={`다음 ${label}`} onClick={() => step(key, 1)}>›</button>
+            <button type="button" className="btn btn-ghost" style={btn} aria-label={`다음 ${label}`} onClick={() => step(key, count, 1)}>›</button>
           </div>)}
           {COLORS.map(([key, label]) => <ColorField key={key} label={label} value={v[key]} onChange={color => onChange({ ...v, [key]: color })} />)}
         </div>
