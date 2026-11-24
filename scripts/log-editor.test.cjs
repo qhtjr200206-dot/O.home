@@ -177,6 +177,37 @@ assert.equal(st.total, 1);
 assert.equal(st.bySpeaker[0].speaker, '벽람');
 assert.equal(st.bySpeaker[0].fail, 1);
 
+/* ---------- 화자 꾸밈 · GM · 인장 · 용량 ---------- */
+const base = { title: 't', channels: ['main', 'other'], showTime: true, showAvatar: true, hideEmpty: true,
+  group: true, theme: 'dark', rollsOnly: false, expandRolls: false, hiddenSpeakers: [] };
+log = parseLog(v2, 'x.html');
+let out = buildLogHtml(log, { ...base, speakers: { '홍이경': { color: '#ff0000', bg: '#222222', font: '"Gowun Batang", serif' } },
+  fontLinks: ['https://fonts.googleapis.com/css2?family=Gowun+Batang&display=swap', 'javascript:alert(1)'] });
+assert.ok(/\.p\d+ p\{color:#ff0000;font-family:"Gowun Batang", serif;background:#222222/.test(out), '화자 글자색·폰트·배경이 그 화자 클래스에');
+assert.ok(out.includes('<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Gowun+Batang&amp;display=swap">'));
+assert.ok(!out.includes('javascript:'), 'https가 아닌 폰트 주소는 싣지 않는다');
+// 위험한 값은 버린다
+out = buildLogHtml(log, { ...base, speakers: { '홍이경': { color: 'red;}body{display:none', font: 'x}body{display:none' } } });
+assert.ok(!out.includes('body{display:none'));
+// GM 표시 · GM을 시스템 메시지처럼
+out = buildLogHtml(log, { ...base, speakers: { '홍이경': { gm: true } } });
+assert.ok(out.includes('<b class="gmb">GM</b><b class="w">홍이경</b>'));
+out = buildLogHtml(log, { ...base, gmAsSystem: true, speakers: { '홍이경': { gm: true } } });
+assert.ok(/<div class="sys gm p\d+"><p>퍽\n줄바꿈<\/p><\/div>/.test(out), 'GM 말은 인장·이름 없이 가운데');
+assert.ok(!out.includes('class="w">홍이경'));
+// 날짜 구분선 + 줄에는 시:분만
+assert.ok(/<div class="day">\d{4}\.\d{2}\.\d{2}<\/div>/.test(out));
+assert.ok(/<s class="t">\d{2}:\d{2}<\/s>/.test(out));
+// 같은 그림은 한 번만 — 바꾼 인장(avatars)을 쓴다
+const twoAv = parseLog(v2.replace('.avatar-image-0 {', '.avatar-image-1 { background-image: url("data:image/png;base64,AAA"); }\n.avatar-image-0 {')
+  .replace('<article class="message" data-channel="other"><span class="avatar-spacer"', '<article class="message" data-channel="other"><span class="avatar avatar-image-1"'), 'x.html');
+out = buildLogHtml(twoAv, base);
+assert.equal(out.split('base64,AAA').length - 1, 1, '같은 인장 그림은 CSS에 한 번');
+out = buildLogHtml(twoAv, { ...base, avatars: { 0: 'data:image/webp;base64,BBB', 1: 'data:image/webp;base64,CCC' } });
+assert.ok(out.includes('base64,BBB') && out.includes('base64,CCC') && !out.includes('base64,AAA'), '편집기가 준 인장으로 바뀐다');
+out = buildLogHtml(twoAv, { ...base, avatars: { 0: 'https://evil/x.png' } });
+assert.ok(!out.includes('evil'), 'data: 이미지가 아니면 넣지 않는다');
+
 /* ---------- 실제 로그 (인자로 준 파일) ---------- */
 for (const f of process.argv.slice(2)) {
   const t0 = Date.now();

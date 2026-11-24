@@ -33,9 +33,9 @@
 
 /* ---------- 작업 화면 ---------- */
 .studio {
-  display: grid; grid-template-columns: 264px minmax(0, 1fr) 248px; gap: 14px; align-items: start;
+  display: grid; grid-template-columns: 300px minmax(0, 1fr); gap: 14px; align-items: start;
 }
-.side, .rolls { display: grid; gap: 12px; position: sticky; top: 8px; max-height: calc(100vh - 90px); overflow-y: auto; scrollbar-width: thin; }
+.side { display: grid; gap: 12px; position: sticky; top: 8px; max-height: calc(100vh - 90px); overflow-y: auto; scrollbar-width: thin; }
 .card { background: var(--panel); border-radius: var(--radius); box-shadow: var(--sh-sm); padding: 15px 16px; color: var(--ink); }
 .card h3 { font-size: 11px; letter-spacing: .14em; color: var(--faint); font-weight: 700; margin-bottom: 10px; }
 .card h3 small { letter-spacing: 0; font-weight: 500; margin-left: 4px; }
@@ -80,48 +80,55 @@
 .dim { letter-spacing: 0; color: #6d7078; }
 .preview { display: block; width: 100%; height: calc(100vh - 128px); min-height: 520px; border: 0; background: #111214; }
 
-/* ---------- 판정 목록 ---------- */
-.rate { display: grid; gap: 7px; }
-.rateBar { height: 8px; border-radius: 99px; background: color-mix(in srgb, #ef5d70 30%, transparent); overflow: hidden; }
-.rateBar span { display: block; height: 100%; background: #3d8cf0; border-radius: 99px; }
-.rateNum { font-size: 12px; color: var(--sub); }
-.rateNum b { font-size: 16px; color: var(--ink); margin-right: 2px; }
-.rateNum em { font-style: normal; font-weight: 700; }
-.crit { color: #c08a12; }
-.fum { color: #d02646; }
-.who { display: grid; gap: 5px; margin-top: 12px; }
-.whoRow { display: flex; align-items: center; gap: 7px; font-size: 12.5px; }
-.whoRow i { width: 8px; height: 8px; border-radius: 50%; flex: none; }
-.whoRow span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.whoRow b { font-variant-numeric: tabular-nums; }
-.whoRow small { color: var(--faint); font-weight: 500; }
+.okTxt { font-style: normal; color: #5aa9ff; }
+.ngTxt { font-style: normal; color: #ef5d70; }
 
-.rollList { display: grid; gap: 5px; }
-.rollItem {
-  display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "nm out" "who pen";
-  gap: 1px 8px; text-align: left; padding: 8px 11px; border-radius: 10px; background: var(--panel);
-  box-shadow: var(--sh-sm); border-left: 3px solid transparent; transition: transform .12s;
-}
-.rollItem:hover { transform: translateX(-2px); }
-.rollItem.ok { border-left-color: #3d8cf0; }
-.rollItem.ng { border-left-color: #ef5d70; }
-.critItem { border-left-color: #e0a91f !important; }
-.fumItem { border-left-color: #b3132f !important; background: color-mix(in srgb, #ff3b5c 8%, var(--panel)); }
-.riName { grid-area: nm; font-weight: 700; font-size: 13px; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.riOut { grid-area: out; font-weight: 800; font-size: 12.5px; justify-self: end; }
-.ok .riOut { color: #2f7fe0; }
-.ng .riOut { color: #d6405a; }
-.critItem .riOut { color: #c08a12; }
-.riWho { grid-area: who; font-size: 11px; color: var(--faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.riPen, .riBon { grid-area: pen; justify-self: end; font-size: 10.5px; font-weight: 700; padding: 0 7px; border-radius: 99px; line-height: 17px; }
-.riPen { color: #c2600f; background: rgba(255, 157, 92, .16); }
-.riBon { color: #0f8a63; background: rgba(79, 209, 165, .16); }
+/* ---------- 화자 ---------- */
+.people { display: grid; gap: 4px; }
+.person { border-radius: 11px; border: 1px solid transparent; transition: border-color .15s, background .15s; }
+.person.open { border-color: var(--line); background: color-mix(in srgb, var(--ink) 3%, transparent); }
+.person.off .pName { text-decoration: line-through; opacity: .5; }
+.personRow { width: 100%; display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 10px; text-align: left; }
+.personRow:hover { background: color-mix(in srgb, var(--ink) 5%, transparent); }
+.personRow em { font-style: normal; font-size: 10.5px; color: var(--faint); margin-left: auto; font-variant-numeric: tabular-nums; }
+.pAv { width: 24px; height: 24px; border-radius: 7px; flex: none; background: var(--line) center/cover no-repeat; }
+.pDot { width: 10px; height: 10px; margin: 0 7px; border-radius: 50%; flex: none; }
+.pName { font-size: 12.5px; font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gmTag { flex: none; font-size: 9.5px; font-weight: 800; letter-spacing: .06em; padding: 0 5px; border-radius: 4px; background: var(--ink); color: var(--panel-solid); line-height: 15px; }
+.styled { flex: none; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
+.caret { flex: none; width: 6px; height: 6px; border-right: 1.5px solid var(--faint); border-bottom: 1.5px solid var(--faint); transform: rotate(45deg); margin: 0 2px 3px 2px; transition: transform .15s; }
+.open .caret { transform: rotate(225deg); margin-bottom: -2px; }
+.personEdit { padding: 4px 10px 12px; display: grid; gap: 9px; }
+.pills { display: flex; gap: 5px; }
+.pills button { font-size: 11.5px; font-weight: 700; padding: 3px 11px; border-radius: 99px; border: 1px solid var(--line); color: var(--sub); }
+.pills button.on { background: var(--ink); border-color: var(--ink); color: var(--panel-solid); }
+.bubblePrev { background: #111214; color: #e9eaee; border-radius: 9px; padding: 10px 12px; font-size: 13.5px; line-height: 1.6; overflow: hidden; }
+.bubblePrev.light { background: #f6f5f2; color: #1f2126; box-shadow: inset 0 0 0 1px var(--line); }
+.bubblePrev span { display: inline-block; max-width: 100%; border-radius: 4px 12px 12px 12px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.field { display: flex; align-items: center; gap: 8px; font-size: 12px; }
+.field > span { width: 40px; flex: none; color: var(--faint); font-size: 11px; }
+.reset { font-size: 11px; color: var(--sub); text-decoration: underline; text-underline-offset: 2px; }
+.subLb { font-size: 11px; color: var(--faint); margin-top: 2px; }
+.subLb small { margin-left: 4px; }
+.avGrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(40px, 1fr)); gap: 6px; max-height: 214px; overflow-y: auto; padding: 6px 6px 2px 0; scrollbar-width: thin; }
+.avCell { position: relative; }
+.avBtn { display: block; width: 100%; aspect-ratio: 1; border-radius: 9px; background: var(--line) center/cover no-repeat; box-shadow: inset 0 0 0 1px var(--line); transition: transform .12s, box-shadow .12s; }
+.avBtn:hover { transform: scale(1.06); box-shadow: 0 0 0 2px var(--accent); }
+.swapped .avBtn { box-shadow: 0 0 0 2px var(--accent); }
+.avReset { position: absolute; top: -5px; right: -5px; width: 17px; height: 17px; border-radius: 50%; background: var(--ink); color: var(--panel-solid); font-size: 12px; line-height: 16px; text-align: center; }
+.warn { font-size: 11px; color: var(--accent); margin: -3px 0 0 2px; }
 
-@media (max-width: 1180px) {
-  .studio { grid-template-columns: 250px minmax(0, 1fr); }
-  .rolls { grid-column: 1 / -1; position: static; max-height: none; }
-  .rollList { grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); }
-}
+/* ---------- 내보내기 ---------- */
+.seg4 { display: grid; grid-template-columns: repeat(4, 1fr); padding: 3px; border-radius: 10px; background: color-mix(in srgb, var(--ink) 6%, transparent); }
+.seg4 button { font-size: 11.5px; padding: 6px 2px; border-radius: 8px; color: var(--sub); font-weight: 600; }
+.seg4 button.on { background: var(--panel-solid); color: var(--ink); box-shadow: 0 1px 4px rgba(0, 0, 0, .12); }
+.sizeRow { display: flex; justify-content: space-between; align-items: baseline; margin: 14px 0 6px; font-size: 11.5px; color: var(--faint); }
+.sizeRow b { font-size: 15px; color: var(--ink); font-variant-numeric: tabular-nums; }
+.sizeRow b.over { color: var(--accent); }
+.sizeBar { height: 5px; border-radius: 99px; background: color-mix(in srgb, var(--ink) 8%, transparent); overflow: hidden; margin-bottom: 12px; }
+.sizeBar span { display: block; height: 100%; border-radius: 99px; background: #3d8cf0; transition: width .3s; }
+.sizeBar span.over { background: var(--accent); }
+
 @media (max-width: 760px) {
   .studio { grid-template-columns: minmax(0, 1fr); }
   .side { position: static; max-height: none; }

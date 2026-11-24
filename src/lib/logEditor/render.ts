@@ -28,6 +28,25 @@ export interface RenderOptions {
   /** 판정 카드를 펼친 채로 */
   expandRolls: boolean;
   hiddenSpeakers: string[];
+  /** 화자별 꾸밈 (화자 이름 → 설정) */
+  speakers?: Record<string, SpeakerStyle>;
+  /** GM으로 지정한 화자의 말을 시스템 메시지처럼 (인장 없이 가운데 정렬) */
+  gmAsSystem?: boolean;
+  /** 아바타 번호 → 이미지 (data: URL). 없으면 로그에 들어 있던 원본. 편집기가 줄이거나 바꾼 것을 넣는다 */
+  avatars?: Record<number, string>;
+  /** 화자 폰트가 쓰는 폰트 CSS 주소 — <link>로 싣는다 (폰트 파일은 HTML에 넣지 않는다) */
+  fontLinks?: string[];
+}
+
+/** 화자 한 명의 꾸밈 — 비워 두면 기본 */
+export interface SpeakerStyle {
+  /** 대화 글자색 */
+  color?: string;
+  /** 대화 배경색 (말풍선) */
+  bg?: string;
+  /** CSS font-family */
+  font?: string;
+  gm?: boolean;
 }
 
 export const esc = (s: string) => s
@@ -121,19 +140,23 @@ header.lh{margin-bottom:28px;padding-bottom:22px;border-bottom:1px solid var(--l
 .lh .tally{margin-top:14px;display:flex;flex-wrap:wrap;gap:6px}
 .lh .tally span{font-size:12px;padding:3px 10px;border-radius:99px;background:var(--bg2);color:var(--sub);border:1px solid var(--line)}
 .lh .tally b{font-weight:700;margin-left:4px}
-.msg{display:grid;grid-template-columns:40px minmax(0,1fr);column-gap:13px;padding:7px 0}
-.msg.first{padding-top:16px}
-.msg.noav{grid-template-columns:minmax(0,1fr)}
-.av{width:40px;height:40px;border-radius:11px;background:var(--bg2) center/cover no-repeat;box-shadow:inset 0 0 0 1px var(--line)}
-.av.sp{background:none;box-shadow:none;height:0}
-.hd{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;margin-bottom:1px}
-.who{font-weight:700;font-size:14px;color:var(--c)}
-.tm{color:var(--faint);font-size:11.5px}
-.chn{font-size:10.5px;color:var(--sub);border:1px solid var(--line2);border-radius:5px;padding:0 6px;line-height:17px}
-.tx{white-space:pre-wrap;overflow-wrap:anywhere}
-.cmd{color:var(--faint);font-size:12.5px;white-space:pre-wrap}
-.sys{margin:18px 0;padding:12px 16px;text-align:center;color:var(--sys);white-space:pre-wrap;font-size:14px;border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
+/* ---- 메시지 — 줄마다 붙는 태그를 최소로 (수천 줄짜리 로그의 용량 대부분이 여기서 나온다) ---- */
+.m{position:relative;padding:3px 0 3px 53px;min-height:0}
+.m.f{padding-top:15px;min-height:59px}
+.noav .m{padding-left:0}.noav .m.f{min-height:0}
+.av{position:absolute;left:0;top:17px;width:40px;height:40px;border-radius:11px;background:var(--bg2) center/cover no-repeat;box-shadow:inset 0 0 0 1px var(--line)}
+.w{font-weight:700;font-size:14px;margin-right:8px}
+.t{color:var(--faint);font-size:11.5px;text-decoration:none}
+.gmb{font-size:10px;font-weight:800;letter-spacing:.06em;color:var(--bg);background:var(--sub);border-radius:4px;padding:0 5px;margin-right:6px;vertical-align:2px}
+.chn{font-size:10.5px;color:var(--sub);border:1px solid var(--line2);border-radius:5px;padding:0 6px;margin-right:6px}
+.m p,.sys p{white-space:pre-wrap;overflow-wrap:anywhere}
+.day{display:flex;align-items:center;gap:12px;margin:26px 0 6px;color:var(--faint);font-size:11.5px;letter-spacing:.06em}
+.day:before,.day:after{content:"";flex:1;height:1px;background:var(--line)}
+.sys{margin:18px 0;padding:12px 16px;text-align:center;color:var(--sys);font-size:14px;border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
 .sys+.sys{margin-top:-19px;border-top:0}
+.sys.gm{color:var(--ink);font-size:15px;border:0;margin:14px 0;padding:6px 12px}
+.sys.gm+.sys.gm{margin-top:-8px}
+.sys .roll{margin:6px auto;text-align:left}
 /* ---- 판정 카드 ---- */
 .roll{margin:5px 0 3px;border-radius:12px;background:var(--card);border:1px solid var(--line2);overflow:hidden;max-width:560px}
 .roll summary{list-style:none;display:flex;align-items:center;gap:9px;padding:9px 12px 9px 11px;cursor:pointer;user-select:none}
@@ -184,7 +207,7 @@ header.lh{margin-bottom:28px;padding-bottom:22px;border-bottom:1px solid var(--l
 .die.used{color:var(--ink);text-decoration:none;font-weight:800;border-color:var(--ink)}
 .raw{font-size:11.5px;color:var(--faint);line-height:1.6;overflow-wrap:anywhere;background:var(--bg2);border-radius:8px;padding:8px 10px}
 footer{margin-top:48px;color:var(--faint);font-size:11px;text-align:center}
-@media (max-width:560px){.wrap{padding:28px 14px 60px}.msg{grid-template-columns:32px minmax(0,1fr);column-gap:10px}.av{width:32px;height:32px;border-radius:9px}.rb{padding-left:14px}.roll .num{display:none}}
+@media (max-width:560px){.wrap{padding:28px 14px 60px}.m{padding-left:42px}.m.f{min-height:49px}.av{width:32px;height:32px;border-radius:9px}.rb{padding-left:14px}.roll .num{display:none}}
 `;
 
 export interface RollStats {
@@ -215,49 +238,110 @@ export function rollStats(messages: LogMessage[]): RollStats {
   return st;
 }
 
+/** 폰트 family 값으로 안전한 것만 (CSS 규칙 안에 들어가므로 중괄호·세미콜론 등은 막는다) */
+const safeFont = (f?: string) => (f && /^[\w\s"',.\-가-힣ㄱ-ㅎ()]+$/.test(f) && !/[{};<>]/.test(f) ? f.trim() : '');
+
+const isImageData = (url?: string) => !!url && /^data:image\/[a-z+]+;base64,[A-Za-z0-9+/=]+$/i.test(url);
+
+const dayOf = (iso?: string) => fmtTime(iso).slice(0, 10);
+const hmOf = (iso?: string) => fmtTime(iso).slice(11);
+
 /** 내보낼 HTML 문서 전체 */
 export function buildLogHtml(log: ParsedLog, o: RenderOptions): string {
   const msgs = visibleMessages(log, o);
   const multi = o.channels.length > 1;
-  const avatarCss = o.showAvatar
-    ? Object.entries(log.avatars)
-      .filter(([n]) => msgs.some(m => m.avatar === Number(n)))
-      .map(([n, url]) => (/^data:image\/[a-z+]+;base64,[A-Za-z0-9+/=]+$/i.test(url) ? `.a${n}{background-image:url("${url}")}` : ''))
-      .join('\n')
-    : '';
+  const styles = o.speakers ?? {};
+  const gmSet = new Set(Object.entries(styles).filter(([, v]) => v.gm).map(([k]) => k));
+  const avatarSrc = o.avatars ?? log.avatars;
+
+  // 아바타 — 같은 그림은 한 번만 싣는다 (코코포리아는 같은 그림을 번호만 달리해 여러 번 넣기도 한다)
+  const avClass = new Map<number, string>();
+  const avCss: string[] = [];
+  if (o.showAvatar) {
+    const byUrl = new Map<string, string>();
+    for (const m of msgs) {
+      if (m.avatar === undefined || avClass.has(m.avatar)) continue;
+      const url = avatarSrc[m.avatar];
+      if (!isImageData(url)) continue;
+      let cls = byUrl.get(url);
+      if (!cls) {
+        cls = `a${byUrl.size}`;
+        byUrl.set(url, cls);
+        avCss.push(`.${cls}{background-image:url("${url}")}`);
+      }
+      avClass.set(m.avatar, cls);
+    }
+  }
+
+  // 화자 — 이름색·글자색·배경·폰트를 클래스 하나로 (줄마다 style을 달지 않는다)
+  const spClass = new Map<string, string>();
+  const spCss: string[] = [];
+  const classOf = (m: LogMessage) => {
+    const key = `${m.speaker}\u0000${m.color}`;
+    let cls = spClass.get(key);
+    if (cls) return cls;
+    cls = `p${spClass.size}`;
+    spClass.set(key, cls);
+    const st = styles[m.speaker] ?? {};
+    spCss.push(`.${cls} .w{color:${safeColor(m.color)}}`);
+    const p: string[] = [];
+    if (st.color) p.push(`color:${safeColor(st.color)}`);
+    const font = safeFont(st.font);
+    if (font) p.push(`font-family:${font}`);
+    if (st.bg) p.push(`background:${safeColor(st.bg)};width:fit-content;max-width:100%;padding:6px 12px;margin:3px ${gmSet.has(m.speaker) && o.gmAsSystem ? 'auto' : '0'};border-radius:${gmSet.has(m.speaker) && o.gmAsSystem ? '12px' : '4px 14px 14px 14px'}`);
+    if (p.length) spCss.push(`.${cls} p{${p.join(';')}}`);
+    return cls;
+  };
+
   const st = rollStats(msgs);
   const times = msgs.map(m => m.time).filter(Boolean) as string[];
-  const span = times.length ? `${fmtTime(times[0]).slice(0, 10)} – ${fmtTime(times[times.length - 1]).slice(0, 10)}` : '';
+  const span = times.length ? `${dayOf(times[0])} – ${dayOf(times[times.length - 1])}` : '';
   const out: string[] = [];
   let prev: LogMessage | null = null;
+  let day = '';
   for (const m of msgs) {
+    // 날짜가 바뀌면 구분선 — 줄마다 날짜를 다는 대신 (보기에도 낫고 용량도 줄어든다)
+    if (o.showTime && m.time) {
+      const d = dayOf(m.time);
+      if (d && d !== day) { out.push(`<div class="day">${d}</div>`); day = d; prev = null; }
+    }
     if (m.system) {
-      out.push(`<div class="sys">${esc(m.text)}</div>`);
+      out.push(`<div class="sys"><p>${esc(m.text)}</p></div>`);
+      prev = null;
+      continue;
+    }
+    const body = m.roll ? rollCard(m.roll, o.expandRolls) : `<p>${esc(m.text)}</p>`;
+    const cls = classOf(m);
+    const gm = gmSet.has(m.speaker);
+    if (gm && o.gmAsSystem) {
+      // GM을 시스템 메시지처럼 — 인장·이름 없이 가운데 (사용자 요청)
+      out.push(`<div class="sys gm ${cls}">${body}</div>`);
       prev = null;
       continue;
     }
     const cont = o.group && !!prev && prev.speaker === m.speaker && prev.avatar === m.avatar && prev.channel === m.channel;
-    const av = !o.showAvatar ? '' : (!cont && m.avatar !== undefined && log.avatars[m.avatar])
-      ? `<span class="av a${m.avatar}"></span>` : '<span class="av sp"></span>';
-    const head = cont ? '' : `<div class="hd"><span class="who" style="--c:${safeColor(m.color)}">${esc(m.speaker || '　')}</span>${multi && m.channel !== 'main' ? `<span class="chn">${esc(m.channelName)}</span>` : ''}${o.showTime && m.time ? `<span class="tm">${fmtTime(m.time)}</span>` : ''}</div>`;
-    let body: string;
-    if (m.roll) {
-      // 판정 명령(CC<=80 민첩성)은 카드에 이름으로 들어가므로 따로 보여 주지 않는다
-      body = rollCard(m.roll, o.expandRolls);
-    } else body = `<div class="tx">${esc(m.text)}</div>`;
-    out.push(`<div class="msg${cont ? '' : ' first'}${o.showAvatar ? '' : ' noav'}" id="m${m.id}">${av}<div>${head}${body}</div></div>`);
+    if (cont) {
+      out.push(`<div class="m ${cls}">${body}</div>`);
+    } else {
+      const av = o.showAvatar && m.avatar !== undefined && avClass.has(m.avatar) ? `<i class="av ${avClass.get(m.avatar)}"></i>` : '';
+      const head = `${gm ? '<b class="gmb">GM</b>' : ''}<b class="w">${esc(m.speaker.trim() || '　')}</b>${multi && m.channel !== 'main' ? `<span class="chn">${esc(m.channelName)}</span>` : ''}${o.showTime && m.time ? `<s class="t">${hmOf(m.time)}</s>` : ''}`;
+      out.push(`<div class="m f ${cls}">${av}${head}${body}</div>`);
+    }
     prev = m;
   }
   const tally = st.total
     ? `<div class="tally"><span>판정<b>${st.total}</b></span><span>성공<b>${st.ok}</b></span><span>실패<b>${st.fail}</b></span>${st.crit ? `<span>대성공<b>${st.crit}</b></span>` : ''}${st.fumble ? `<span>대실패<b>${st.fumble}</b></span>` : ''}</div>`
     : '';
+  const links = (o.fontLinks ?? []).filter(u => /^https:\/\/[^\s"'<>]+$/.test(u))
+    .map(u => `<link rel="stylesheet" href="${esc(u)}">`).join('');
   return `<!DOCTYPE html>
 <html lang="ko" class="${o.theme === 'light' ? 'light' : 'dark'}"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>${esc(o.title)}</title>
+<title>${esc(o.title)}</title>${links}
 <style>${CSS}
-${avatarCss}</style></head>
-<body><div class="wrap">
+${spCss.join('\n')}
+${avCss.join('\n')}</style></head>
+<body><div class="wrap${o.showAvatar ? '' : ' noav'}">
 <header class="lh"><h1>${esc(o.title)}</h1><div class="meta">${span ? `<span>${span}</span>` : ''}<span>메시지 ${msgs.length.toLocaleString('ko-KR')}</span></div>${tally}</header>
 ${out.join('\n')}
 <footer>O.HOME 로그 편집기</footer>
