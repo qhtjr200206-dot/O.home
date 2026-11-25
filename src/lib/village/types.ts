@@ -1,6 +1,8 @@
 // 마을(웹게임) 공용 타입과 입력 검증 — 브라우저와 서버가 함께 쓴다. 비밀 값은 여기 두지 않는다.
 import type { PixelAvatarData } from '@/components/chars/PixelAvatar';
 import type { VillageEra } from './map';
+import { GIFT_CATALOG } from './catalog';
+import type { HouseLevel, PlacedItem } from './house';
 
 export type { VillageEra };
 export type Personality = 'lively' | 'calm' | 'shy' | 'curious' | 'lazy';
@@ -16,23 +18,8 @@ export const ERAS: { id: VillageEra; label: string; channel: string; verb: strin
   { id: 'modern', label: '현대 (폰)', channel: '폰', verb: '메시지를 보냈다' },
   { id: 'sf', label: 'SF (무전)', channel: '무전', verb: '무전을 보냈다' },
 ];
-export const GIFTS: Record<VillageEra, { id: string; label: string; icon: string }[]> = {
-  past: [
-    { id: 'flower', label: '들꽃 다발', icon: '🌼' }, { id: 'tea', label: '찻잎', icon: '🍵' },
-    { id: 'rice-cake', label: '떡', icon: '🍡' }, { id: 'hairpin', label: '비녀', icon: '📍' },
-    { id: 'book', label: '낡은 책', icon: '📖' },
-  ],
-  modern: [
-    { id: 'coffee', label: '커피', icon: '☕' }, { id: 'cake', label: '조각 케이크', icon: '🍰' },
-    { id: 'bouquet', label: '꽃다발', icon: '💐' }, { id: 'ticket', label: '영화표', icon: '🎟️' },
-    { id: 'plush', label: '인형', icon: '🧸' },
-  ],
-  sf: [
-    { id: 'battery', label: '에너지 셀', icon: '🔋' }, { id: 'chip', label: '데이터 칩', icon: '💾' },
-    { id: 'ration', label: '우주 식량', icon: '🥫' }, { id: 'crystal', label: '성간 크리스탈', icon: '💎' },
-    { id: 'drone', label: '소형 드론', icon: '🛸' },
-  ],
-};
+/** 시대별 선물 — 상점 카탈로그(catalog.ts)의 12종. 예전 5종 id는 그대로라 기존 소식 기록이 계속 보인다 (v3) */
+export const GIFTS: Record<VillageEra, { id: string; label: string; icon: string; price: number; level: number }[]> = GIFT_CATALOG;
 export const MINIGAMES = [
   { id: 'catch', label: '별 줍기', max: 60 },
   { id: 'memory', label: '짝 맞추기', max: 1000 },
@@ -67,15 +54,38 @@ export interface RoomView {
 export interface ActorOverride { id: string; x: number; y: number; at: number; by: string }
 export interface RoomEvent {
   id: string;
-  type: 'message' | 'gift' | 'game' | 'wake';   // wake: from이 to를 깨웠다(from === to면 스스로 일어남)
+  // wake: from이 to를 깨웠다(from === to면 스스로 일어남). levelup·gather·house는 v3 경제(레벨업 소식·채집·집 확장)
+  type: 'message' | 'gift' | 'game' | 'wake' | 'levelup' | 'gather' | 'house';
   from: string;
   to?: string;
   text?: string;
   item?: string;
   game?: MinigameId;
   score?: number;
+  /** levelup: 새 레벨, house: 새 집 단계 */
+  level?: number;
+  /** gather·house: 장소 id */
+  place?: string;
+  /** gather: 얻은 재화 */
+  coins?: number;
+  /** gift: 좋아하는 선물이었는지, 오른 호감도 */
+  liked?: boolean;
+  pts?: number;
   at: number;
 }
+/** 배우 지갑(서버가 계산한 값) — 방 안 사람에게만 내려간다 */
+export interface EconView {
+  actor: string; coins: number; exp: number; level: number;
+  inv: Record<string, number>;
+  /** 공개된 좋아하는 선물 */
+  liked: string[];
+  gatherAt: Record<string, number>;
+  daily: Record<string, number>;
+}
+export interface HouseView { place: string; level: HouseLevel; floor: string; wall: string; items: PlacedItem[] }
+export interface BondView { a: string; b: string; pts: number }
+/** 행동 뒤 보상(토스트용) */
+export interface RewardView { coins: number; exp: number; level: number; levelUp: boolean; attend: boolean }
 export interface RoomSummary { id: string; name: string; era: VillageEra; mine: boolean; createdAt: number }
 
 export const LIMITS = {

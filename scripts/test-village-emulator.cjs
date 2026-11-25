@@ -300,7 +300,11 @@ const roomInput = (chars, extra = {}) => ({
   });
   await step('선물·메시지·미니게임 검증(세계관 밖 선물/과도한 길이/불가능한 점수 거부)', async () => {
     const a = action => call('act', { roomId: roomA, token: tokenA, action }, alice.idToken);
+    // (v3 사용자 요청) 선물은 가방에 있는 것만 — 빈 가방이면 409, 시험용으로 가방에 하나 넣은 뒤(서버 문서 직접 쓰기) 성공
+    assert.equal((await a({ type: 'gift', actor: 'c-alice', to: 'c-admin', item: 'coffee' })).status, 409, '가방에 없는 선물 거부');
+    await db.doc(`village_rooms/${roomA}/econ/c-alice`).set({ actor: 'c-alice', coins: 0, exp: 0, inv: { coffee: 1 }, day: 'old', daily: {}, gatherAt: {}, liked: [] });
     assert.equal((await a({ type: 'gift', actor: 'c-alice', to: 'c-admin', item: 'coffee' })).status, 200);
+    assert.equal((await db.doc(`village_rooms/${roomA}/econ/c-alice`).get()).data().inv.coffee ?? 0, 0, '선물 재고 차감');
     assert.equal((await a({ type: 'gift', actor: 'c-alice', to: 'c-admin', item: 'battery' })).status, 400, 'SF 선물은 현대 방에서 거부');
     assert.equal((await a({ type: 'gift', actor: 'c-alice', to: 'c-alice', item: 'coffee' })).status, 400, '자기 자신에게 선물 거부');
     assert.equal((await a({ type: 'message', actor: 'c-alice', to: 'c-admin', text: '안녕하세요' })).status, 200);
@@ -565,12 +569,16 @@ const roomInput = (chars, extra = {}) => ({
     assert.equal((await db.doc(`village_cleanup/${id}`).get()).exists, false);
   });
   await step('삭제 권한: 다른 회원 거부, 방 주인 허용 → 세션·하위 데이터 폐기', async () => {
+    // (v3 사용자 요청) 지갑·호감 문서가 실제로 있었던 방을 지워야 하위 컬렉션 정리 확인이 의미가 있다
+    assert.ok((await db.collection(`village_rooms/${roomA}/econ`).get()).size > 0, '삭제 전 econ 존재');
+    assert.ok((await db.collection(`village_rooms/${roomA}/bonds`).get()).size > 0, '삭제 전 bonds 존재');
+    await db.doc(`village_rooms/${roomA}/houses/p0`).set({ level: 1, items: [] });
     assert.equal((await call('delete', { roomId: roomA }, carol.idToken)).status, 403);
     assert.equal((await call('delete', { roomId: roomA })).status, 401);
     assert.equal((await call('delete', { roomId: roomA }, alice.idToken)).status, 200);
     assert.equal((await call('state', { roomId: roomA, token: tokenA }, alice.idToken)).status, 401);
     assert.equal((await call('join', { roomId: roomA, password: 'new-pass' }, alice.idToken)).status, 404);
-    for (const sub of ['pos', 'events', 'scores', 'limits']) assert.equal((await db.collection(`village_rooms/${roomA}/${sub}`).get()).size, 0, sub);
+    for (const sub of ['pos', 'events', 'scores', 'limits', 'econ', 'houses', 'bonds']) assert.equal((await db.collection(`village_rooms/${roomA}/${sub}`).get()).size, 0, sub);
   });
   await step('삭제 직후 같은 가입자 재생성 허용, 다시 1개 제한', async () => {
     const r = await call('create', { room: roomInput(['c-alice']) }, alice.idToken);

@@ -1,9 +1,15 @@
 'use client';
 // 마을 게임 화면 — 캔버스 맵, 시간대별 자율 행동, 조작(이동·선물·메시지·미니게임), 방 관리.
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { generateVillageMap, type VillageMap } from '@/lib/village/map';
-import { simulate, phaseAt, PHASE_LABEL, type ActorFrame, type WakeMark } from '@/lib/village/sim';
-import { ERAS, GIFTS, MINIGAMES, LIMITS, josa, type ActorOverride, type RoomEvent, type RoomView, type MinigameId } from '@/lib/village/types';
+import { generateVillageMap, nearTile, type MapPlace, type VillageMap } from '@/lib/village/map';
+import { simulate, phaseAt, homeOf, PHASE_LABEL, type ActorFrame, type BondMark, type WakeMark } from '@/lib/village/sim';
+import {
+  ERAS, GIFTS, MINIGAMES, LIMITS, josa,
+  type ActorOverride, type BondView, type EconView, type HouseView, type RewardView, type RoomEvent, type RoomView, type MinigameId,
+} from '@/lib/village/types';
+import { CURRENCY, GATHER, GATHER_COOLDOWN_MS, bondKey, bondTier, favoriteGifts, isGatherKind, levelOf, titleOf } from '@/lib/village/economy';
+import { cozyStars } from '@/lib/village/house';
+import { BagPanel, HouseInterior, Hud, ShopPanel, emptyHouse, houseScore, stars } from './EconPanels';
 import { villageApi, roomToken, VillageApiError } from '@/lib/village/client';
 import { avatarSprite, buildScene, npcAvatar, DARKNESS, PHASE_TINT, SPRITE_WORLD, TILE } from './render';
 import { PixelAvatar } from '@/components/chars/PixelAvatar';
@@ -11,8 +17,30 @@ import type { PixelAvatarData } from '@/components/chars/PixelAvatar';
 import { CatchGame, MemoryGame, type FlipResult } from './Minigames';
 
 const DEFAULT_LOOK: PixelAvatarData = { hair: 0, face: 7, body: 0, hairColor: '#4a4550', skinColor: '#e9c4a8', bodyColor: '#8a8f99' };
-type State = { room: RoomView; overrides: ActorOverride[]; events: RoomEvent[]; scores: { actor: string; game: string; best: number }[]; wakes?: WakeMark[]; serverTime: number };
-type Panel = null | 'gift' | 'message' | 'game' | 'manage';
+type State = {
+  room: RoomView; overrides: ActorOverride[]; events: RoomEvent[]; scores: { actor: string; game: string; best: number }[]; wakes?: WakeMark[]; serverTime: number;
+  /** v3 경제 — 처음·내 행동 뒤·15초마다 같이 온다(가벼운 폴링에는 없어서 이전 값을 유지) */
+  econ?: EconView[]; houses?: HouseView[]; bonds?: BondView[];
+};
+type Panel = null | 'gift' | 'message' | 'game' | 'manage' | 'shop' | 'bag';
+type ActOut = { ok: true; reward?: RewardView; liked?: boolean; pts?: number; score?: number };
+/** 장소 머리 위 아이콘 — 상점·집·채집 장소를 한눈에 구분 (기획서 10장 가독성) */
+const placeIcon = (p: MapPlace) => (p.kind === 'shop' ? '🏪' : p.kind === 'house' ? '🏠' : isGatherKind(p.kind) ? GATHER[p.kind].icon : '');
+/** 보상 토스트 문구 — "+12 🪙 · +12 EXP", 출석이면 앞에 '출석 보상', 레벨이 오르면 별과 함께 */
+function rewardText(r: RewardView | undefined, cur: string) {
+  if (!r || (!r.coins && !r.exp && !r.levelUp)) return '';
+  const parts = [r.coins ? `+${r.coins} ${cur}` : '', r.exp ? `+${r.exp} EXP` : ''].filter(Boolean).join(' · ');
+  return `${r.attend ? '출석 보상 ' : ''}${parts}${r.levelUp ? ` ⭐ 레벨 ${r.level} 달성!` : ''}`;
+}
+/** 폴링 결과 합치기 — 소식은 이어 붙이고, 지갑·집·호감도는 새로 온 때만 바꾼다 */
+function merge(prev: State | null, r: State, first: boolean): State {
+  if (first || !prev) return r;
+  const seen = new Set(prev.events.map(e => e.id));
+  return {
+    ...r, events: [...prev.events, ...r.events.filter(e => !seen.has(e.id))].slice(-120),
+    econ: r.econ ?? prev.econ, houses: r.houses ?? prev.houses, bonds: r.bonds ?? prev.bonds,
+  };
+}
 
 const kst = (t: number) => {
   const d = new Date(t + 9 * 3600 * 1000);
@@ -28,6 +56,8 @@ export function VillageGame({ roomId, loggedIn, isAdmin, onLeave, onNeedPassword
   const [focus, setFocus] = useState<string | null>(null);
   const [panel, setPanel] = useState<Panel>(null);
   const [toast, setToast] = useState('');
+  /** 집 안에 들어가 있으면 그 장소 id (실내 위치는 저장하지 않는다) */
+  const [inside, setInside] = useState<string | null>(null);
   const [clock, setClock] = useState(Date.now());
   const offset = useRef(0);
   // 개발 서버 전용 시간 이동(?vt=13:30) — 낮·저녁 장면을 시험하기 위함. 운영 빌드에서는 사라진다.
@@ -55,17 +85,15 @@ export function VillageGame({ roomId, loggedIn, isAdmin, onLeave, onNeedPassword
   useEffect(() => {
     let alive = true;
     let timer: ReturnType<typeof setTimeout>;
+    let n = 0;
     const load = async (first: boolean) => {
       try {
-        const r = await villageApi<State>('state', { roomId, token, since: first ? 0 : lastAt.current });
+        // 지갑·집·호감도는 5번에 한 번(15초)만 같이 받는다 — 서버 읽기 비용을 줄이려고 (v3)
+        const r = await villageApi<State>('state', { roomId, token, since: first ? 0 : lastAt.current, econ: first || n++ % 5 === 4 });
         if (!alive) return;
         offset.current = r.serverTime - Date.now() + devShift.current;
         if (r.events.length) lastAt.current = Math.max(lastAt.current, ...r.events.map(e => e.at));
-        setSt(prev => {
-          if (first || !prev) return r;
-          const seen = new Set(prev.events.map(e => e.id));
-          return { ...r, events: [...prev.events, ...r.events.filter(e => !seen.has(e.id))].slice(-120) };
-        });
+        setSt(prev => merge(prev, r, first));
       } catch (e) { if (alive) failRef.current(e); }
       if (alive) timer = setTimeout(() => load(false), document.hidden ? 10_000 : 3_000);
     };
@@ -83,7 +111,7 @@ export function VillageGame({ roomId, loggedIn, isAdmin, onLeave, onNeedPassword
     }).catch(e => { setControls([]); failRef.current(e); });   // 실패를 조용히 삼키면 '조작할 캐릭터 없음'으로만 보인다
   }, [roomId, token, loggedIn]);
   useEffect(() => { const t = setInterval(() => setClock(Date.now()), 15_000); return () => clearInterval(t); }, []);
-  useEffect(() => { if (!toast) return; const t = setTimeout(() => setToast(''), 3500); return () => clearTimeout(t); }, [toast]);
+  useEffect(() => { if (!toast) return; const t = setTimeout(() => setToast(''), 4500); return () => clearTimeout(t); }, [toast]);
 
   const room = st?.room;
   const placesKey = JSON.stringify(room?.places ?? []);
@@ -92,20 +120,24 @@ export function VillageGame({ roomId, loggedIn, isAdmin, onLeave, onNeedPassword
   const channel = era.id === 'modern' ? '메시지' : era.channel;
   const nameOf = useCallback((id?: string) => room?.actors.find(a => a.id === id)?.name ?? '?', [room]);
 
-  // 내 행동은 다음 폴링을 기다리지 않고 바로 반영
+  // 내 행동은 다음 폴링을 기다리지 않고 바로 반영(지갑·집도 함께)
   const refresh = useCallback(async () => {
-    const r = await villageApi<State>('state', { roomId, token, since: lastAt.current });
+    const r = await villageApi<State>('state', { roomId, token, since: lastAt.current, econ: true });
     if (r.events.length) lastAt.current = Math.max(lastAt.current, ...r.events.map(e => e.at));
-    setSt(prev => prev ? { ...r, events: [...prev.events, ...r.events.filter(e => !prev.events.some(p => p.id === e.id))].slice(-120) } : r);
+    setSt(prev => merge(prev, r, false));
   }, [roomId, token]);
-  const send = useCallback(async (action: Record<string, unknown>, okMsg?: string) => {
+  const [busy, setBusy] = useState(false);
+  const curIcon = st ? CURRENCY[st.room.era].icon : '🪙';
+  const send = useCallback(async (action: Record<string, unknown>, okMsg?: string): Promise<ActOut | null> => {
+    setBusy(true);
     try {
-      await villageApi('act', { roomId, token, action });
-      if (okMsg) setToast(okMsg);
+      const out = await villageApi<ActOut>('act', { roomId, token, action });
+      const rw = rewardText(out.reward, curIcon);
+      if (okMsg || rw) setToast([okMsg, rw].filter(Boolean).join(' — '));
       await refresh();
-      return true;
-    } catch (e) { fail(e); return false; }
-  }, [roomId, token, fail, refresh]);
+      return out;
+    } catch (e) { fail(e); return null; } finally { setBusy(false); }
+  }, [roomId, token, fail, refresh, curIcon]);
 
   if (!st || !room || !map) return <div className="village-card">마을을 불러오는 중…</div>;
   const sel = room.actors.find(a => a.id === selected) ?? null;
@@ -114,6 +146,22 @@ export function VillageGame({ roomId, loggedIn, isAdmin, onLeave, onNeedPassword
   const wakes = devShift.current ? (st.wakes ?? []).map(w => ({ ...w, at: w.at + devShift.current })) : (st.wakes ?? []);
   const t = clock + offset.current;
   const phase = phaseAt(t);
+  const bonds: BondMark[] = st.bonds ?? [];
+  const econOf = (id?: string | null) => st.econ?.find(e => e.actor === id);
+  const houseOf = (place: string) => st.houses?.find(h => h.place === place) ?? emptyHouse(room.era, place);
+  const cur = CURRENCY[room.era];
+  const residentsOf = (place: string) => room.actors.filter(a => homeOf(map, a, room.seed) === place);
+  // 고른 내 캐릭터가 지금 서 있는 곳 — 장소 칸이나 바로 옆이면 상점·집·채집 버튼이 생긴다 (기획서 6·7장)
+  const selFrame = sel ? simulate(map, room.seed, room.actors, shifted, t, wakes, bonds).find(f => f.id === sel.id) : undefined;
+  const near = selFrame && !selFrame.moving ? map.places.filter(p => nearTile(selFrame, p)) : [];
+  const nearShop = !!selFrame && !selFrame.moving && (near.some(p => p.kind === 'shop') || (!!map.kiosk && nearTile(selFrame, map.kiosk)));
+  const nearHouse = near.find(p => p.kind === 'house');
+  const nearGather = near.find(p => isGatherKind(p.kind));
+  const myEcon = econOf(sel?.id);
+  const myHome = sel ? map.places.find(p => p.id === homeOf(map, sel, room.seed) && p.kind === 'house') ?? null : null;
+  const shopSpot = map.places.find(p => p.kind === 'shop') ?? (map.kiosk ? { ...map.kiosk, name: '광장 노점' } : null);
+  // 화면 시계는 15초마다만 갱신되므로 남은 시간이 쿨다운보다 길게 보이지 않게 자른다
+  const gatherWait = nearGather && myEcon ? Math.min(GATHER_COOLDOWN_MS, Math.max(0, GATHER_COOLDOWN_MS - (t - (myEcon.gatherAt[nearGather.id] ?? 0)))) : 0;
   // 캐릭터 고르기 (v2.0 사용자 제보 — "마을에서 캐릭터 선택 불가"). 예전에는 조작할 캐릭터를 사이드 패널의
   // '내 캐릭터' 칩으로만 고를 수 있었고, 지도·'마을 사람들' 목록에서 캐릭터를 눌러도 초상만 바뀌었다.
   // 좁은 화면에선 그 칩이 지도 아래로 밀려 있어 "눌러도 안 골라진다"가 됐다. 이제 어디서 누르든
@@ -123,7 +171,7 @@ export function VillageGame({ roomId, loggedIn, isAdmin, onLeave, onNeedPassword
     if (controls.includes(id)) { setSelected(id); return; }
     if (loggedIn && !controls.length) setToast('이 캐릭터를 조작할 권한이 없어요 — 살펴보기만 할 수 있습니다');
   };
-  const focusFrame = focused ? simulate(map, room.seed, room.actors, shifted, t, wakes).find(f => f.id === focused.id) : undefined;
+  const focusFrame = focused ? simulate(map, room.seed, room.actors, shifted, t, wakes, bonds).find(f => f.id === focused.id) : undefined;
   // 깨우는 쪽: 고른 내 캐릭터, 없으면 내가 조작할 수 있는 첫 캐릭터(서버가 같은 권한을 다시 확인한다)
   const waker = sel?.id ?? controls[0] ?? null;
   const wake = (to: string) => {
@@ -138,16 +186,43 @@ export function VillageGame({ roomId, loggedIn, isAdmin, onLeave, onNeedPassword
           <b style={{ fontSize: 16 }}>{room.name}</b>
           <span className="village-badge">{era.label}</span>
           <span className="village-badge" title="한국 시각 기준 시간대">🕒 {kst(t)} · {PHASE_LABEL[phase]}</span>
+          {sel && <Hud era={room.era} econ={myEcon} name={sel.name} />}
           <span style={{ flex: 1 }} />
           <button className="btn btn-ghost" onClick={onLeave}>나가기</button>
         </div>
-        <VillageCanvas map={map} room={room} overrides={shifted} wakes={wakes} offset={offset} selected={selected} focus={focus}
+        {inside ? (() => {
+          const pl = map.places.find(p => p.id === inside)!;
+          const house = houseOf(inside);
+          const residents = residentsOf(inside);
+          const canDecorate = !!sel && residents.some(a => a.id === sel.id);
+          return (
+            <HouseInterior era={room.era} placeName={pl.name} house={house} busy={busy}
+              avatar={sel ? (sel.avatar ?? (sel.kind === 'npc' ? npcAvatar(sel.id, sel.name) : null)) : undefined}
+              actorName={sel?.name ?? null} residents={residents.map(a => a.name)} canDecorate={canDecorate} inv={myEcon?.inv ?? {}}
+              onExit={() => setInside(null)}
+              act={async action => !!(sel && await send({ ...action, actor: sel.id, place: inside }))} />
+          );
+        })() : <>
+        <VillageCanvas map={map} room={room} overrides={shifted} wakes={wakes} bonds={bonds} events={st.events} offset={offset} selected={selected} focus={focus}
           onTile={(x, y) => {
             if (!selected || !controls.includes(selected)) { setToast(controls.length ? '지도에서 내 캐릭터를 누르거나 “내 캐릭터”에서 먼저 고르세요' : '이 방에 조작할 수 있는 캐릭터가 없어요'); return; }
             // 서버가 허용한 위치만 반영한다. 거절된 이동은 화면에 나타나지 않는다.
             void send({ type: 'move', actor: selected, x, y });
           }}
           onActor={pickActor} />
+        {sel && controls.includes(sel.id) && (nearShop || nearHouse || nearGather) && (
+          <div className="village-actions" role="group" aria-label="이곳에서 할 수 있는 일">
+            {nearHouse && <button className="btn btn-dark" onClick={() => setInside(nearHouse.id)}>🏠 {nearHouse.name} 들어가기</button>}
+            {nearShop && <button className="btn btn-dark" onClick={() => setPanel('shop')}>🏪 상점 열기</button>}
+            {nearGather && isGatherKind(nearGather.kind) && (
+              <button className="btn btn-dark" disabled={busy || gatherWait > 0} onClick={() => void send({ type: 'gather', actor: sel.id, place: nearGather.id })}
+                title={gatherWait > 0 ? `${Math.ceil(gatherWait / 60000)}분 뒤 다시 채집할 수 있어요` : undefined}>
+                {GATHER[nearGather.kind].icon} {GATHER[nearGather.kind].label}{gatherWait > 0 ? ` (${Math.ceil(gatherWait / 60000)}분 뒤)` : ''}
+              </button>
+            )}
+          </div>
+        )}
+        </>}
         {toast && <div role="status" className="village-toast">{toast}</div>}
         {room.worldview && <details className="village-card" style={{ marginTop: 8 }}><summary>세계관</summary><p style={{ whiteSpace: 'pre-wrap', margin: '8px 0 0' }}>{room.worldview}</p></details>}
       </div>
@@ -172,11 +247,13 @@ export function VillageGame({ roomId, loggedIn, isAdmin, onLeave, onNeedPassword
           </div>
           {sel && (
             <div style={{ display: 'grid', gap: 6, marginTop: 8 }}>
-              <small className="village-muted">맵을 누르면 {josa(sel.name, '이/가')} 그곳으로 걸어갑니다. 5분 동안 조작하지 않으면 설정대로 다시 혼자 움직여요.</small>
+              <small className="village-muted">맵을 누르면 {josa(sel.name, '이/가')} 그곳으로 걸어갑니다. 5분 동안 조작하지 않으면 설정대로 다시 혼자 움직여요.
+                {' '}🏪 상점·🏠 집·🐚 채집 장소 옆에 서면 할 수 있는 일이 지도 아래에 나타나요.</small>
               <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                 <button className="btn btn-dark" onClick={() => setPanel('gift')}>🎁 선물</button>
                 <button className="btn btn-dark" onClick={() => setPanel('message')}>{era.id === 'sf' ? '📡' : era.id === 'past' ? '✉️' : '📱'} {channel}</button>
                 <button className="btn btn-dark" onClick={() => setPanel('game')}>🎲 미니게임</button>
+                <button className="btn btn-dark" onClick={() => setPanel('bag')}>👜 가방</button>
                 <button className="btn btn-ghost" onClick={() => { void send({ type: 'release', actor: sel.id }, `${josa(sel.name, '이/가')} 다시 혼자 움직입니다`); setSt(p => p ? { ...p, overrides: p.overrides.filter(o => o.id !== sel.id) } : p); }}>자율로 돌려보내기</button>
               </div>
             </div>
@@ -184,21 +261,46 @@ export function VillageGame({ roomId, loggedIn, isAdmin, onLeave, onNeedPassword
         </section>
 
         {panel && sel && (
-          <section className="village-card">
-            <div style={{ display: 'flex', alignItems: 'center' }}><h3 style={{ flex: 1 }}>{panel === 'gift' ? '선물하기' : panel === 'message' ? `${channel} 보내기` : panel === 'game' ? '미니게임' : ''}</h3><button className="btn btn-ghost" onClick={() => setPanel(null)} aria-label="닫기">✕</button></div>
-            {panel === 'gift' && <GiftPanel room={room} from={sel.id} onSend={(to, item) => send({ type: 'gift', actor: sel.id, to, item }, '선물을 건넸어요').then(ok => ok && setPanel(null))} />}
-            {panel === 'message' && <MessagePanel room={room} from={sel.id} events={st.events} onSend={(to, text) => send({ type: 'message', actor: sel.id, to, text }, `${josa(channel, '을/를')} 보냈어요`)} />}
+          // 상점·가방은 좁은 화면에서 아래에서 올라오는 시트로 연다 (기획서 9장 모바일)
+          <section className={`village-card${panel === 'shop' || panel === 'bag' ? ' village-sheet' : ''}`}>
+            <div style={{ display: 'flex', alignItems: 'center' }}><h3 style={{ flex: 1 }}>{panel === 'gift' ? '선물하기' : panel === 'message' ? `${channel} 보내기` : panel === 'game' ? '미니게임' : panel === 'shop' ? `🏪 상점 — ${sel.name}` : panel === 'bag' ? `👜 ${sel.name}의 가방` : ''}</h3><button className="btn btn-ghost" onClick={() => setPanel(null)} aria-label="닫기">✕</button></div>
+            {panel === 'gift' && <GiftPanel room={room} from={sel.id} inv={myEcon?.inv ?? {}}
+              onShop={() => {
+                if (nearShop) { setPanel('shop'); return; }
+                // 상점에서 멀면 상점(또는 광장 노점) 칸까지 걸어가게 한다 — 도착하면 '상점 열기' 버튼이 생긴다
+                if (shopSpot) { void send({ type: 'move', actor: sel.id, x: shopSpot.x, y: shopSpot.y }, `${josa(sel.name, '이/가')} ${josa(shopSpot.name, '으로/로')} 걸어가요`); setPanel(null); }
+              }}
+              onSend={(to, item) => send({ type: 'gift', actor: sel.id, to, item }).then(out => {
+                if (!out) return;
+                const g = GIFTS[room.era].find(x => x.id === item);
+                const rw = rewardText(out.reward, cur.icon);
+                setToast(`${g?.icon ?? '🎁'} ${josa(nameOf(to), '이/가')} ${out.liked ? '정말 좋아해요! ' : '받았어요 · '}호감도 +${out.pts ?? 0}${rw ? ` — ${rw}` : ''}`);
+                setPanel(null);
+              })} />}
+            {/* 상점은 상점·노점 옆에서만 열린다 — 걸어서 떠나면 닫힌 안내로 바뀐다 (기획서 5장) */}
+            {panel === 'shop' && !nearShop && (
+              <div style={{ display: 'grid', gap: 6 }}>
+                <p className="village-muted" style={{ margin: 0 }}>상점에서 멀어졌어요. 🏪 상점{map.kiosk ? '(광장 노점)' : ''} 바로 옆에 서면 다시 열려요.</p>
+                {shopSpot && <button className="btn btn-dark" onClick={() => void send({ type: 'move', actor: sel.id, x: shopSpot.x, y: shopSpot.y }, `${josa(sel.name, '이/가')} ${josa(shopSpot.name, '으로/로')} 걸어가요`)}>🏪 {josa(shopSpot.name, '으로/로')} 걸어가기</button>}
+              </div>
+            )}
+            {panel === 'shop' && nearShop && <ShopPanel era={room.era} econ={myEcon} busy={busy} homeHouse={myHome ? houseOf(myHome.id) : null} homeName={myHome?.name ?? ''}
+              onBuy={(item, qty) => void send({ type: 'shop.buy', actor: sel.id, item, qty }, '가방에 넣었어요')}
+              onUpgrade={() => { if (myHome) void send({ type: 'house.upgrade', actor: sel.id, place: myHome.id }, '집을 넓혔어요 🏠'); }} />}
+            {panel === 'bag' && <BagPanel era={room.era} econ={myEcon} onShop={nearShop ? () => setPanel('shop') : null} />}
+            {panel === 'message' && <MessagePanel room={room} from={sel.id} events={st.events} onSend={async (to, text) => !!(await send({ type: 'message', actor: sel.id, to, text }, `${josa(channel, '을/를')} 보냈어요`))} />}
             {panel === 'game' && <GamePanel room={room} actor={sel.id} scores={st.scores}
               start={async game => { try { return await villageApi<{ gameId: string; seed?: string }>('act', { roomId, token, action: { type: 'gameStart', actor: sel.id, game } }); } catch (e) { fail(e); return null; } }}
               flip={async (gameId, card) => {
                 try { return await villageApi<FlipResult>('act', { roomId, token, action: { type: 'gameFlip', actor: sel.id, gameId, card } }); }
                 catch (e) { fail(e); return null; }
               }}
-              onMemoryDone={score => { setToast(`${score}점 기록!`); void refresh(); }}
+              onMemoryDone={(score, reward) => { const rw = rewardText(reward, cur.icon); setToast(`${score}점 기록!${rw ? ` — ${rw}` : ''}`); void refresh(); }}
               submit={async (game, gameId, input) => {
                 try {
-                  const r = await villageApi<{ score: number }>('act', { roomId, token, action: { type: 'game', actor: sel.id, game, gameId, input } });
-                  setToast(`${r.score}점 기록!`);
+                  const r = await villageApi<ActOut>('act', { roomId, token, action: { type: 'game', actor: sel.id, game, gameId, input } });
+                  const rw = rewardText(r.reward, cur.icon);
+                  setToast(`${r.score}점 기록!${rw ? ` — ${rw}` : ''}`);
                   await refresh();
                 } catch (e) { fail(e); }
               }} />}
@@ -212,6 +314,27 @@ export function VillageGame({ roomId, loggedIn, isAdmin, onLeave, onNeedPassword
               <h3 style={{ margin: 0 }}>{focused.name}</h3>
               <small className="village-muted">{focused.kind === 'npc' ? `NPC${focused.role ? ` · ${focused.role}` : ''}` : focused.avatar ? '캐릭터 프로필 도트' : '도트 비공개 캐릭터'}</small>
               {focused.lines.length > 0 && <p className="village-muted" style={{ margin: '6px 0 0', fontSize: 13 }}>“{focused.lines[0]}”</p>}
+              {(() => {
+                // 레벨·칭호, 고른 내 캐릭터와의 호감도(하트), 좋아하는 선물('?' → 한 번 받으면 공개) (기획서 4장)
+                const lv = levelOf(econOf(focused.id)?.exp ?? 0), title = titleOf(lv);
+                const bond = sel && sel.id !== focused.id ? bonds.find(b => bondKey(b.a, b.b) === bondKey(sel.id, focused.id))?.pts ?? 0 : null;
+                const tier = bond !== null ? bondTier(bond) : null;
+                const liked = favoriteGifts(room.seed, focused.id, GIFTS[room.era].map(g => g.id));
+                const shown = econOf(focused.id)?.liked ?? [];
+                return (
+                  <div style={{ display: 'grid', gap: 2, marginTop: 6, fontSize: 13 }}>
+                    <span>Lv {lv}{title ? ` · ⭐ ${title}` : ''}</span>
+                    {tier && sel && <span title={`호감도 ${bond}`} aria-label={`${sel.name}와의 호감도 ${tier.label}`}>{josa(sel.name, '와/과')} <span style={{ color: '#e0567a' }}>{'♥'.repeat(tier.hearts)}</span><span className="village-muted">{'♡'.repeat(4 - tier.hearts)}</span> {tier.label} <small className="village-muted">({bond})</small></span>}
+                    {/* 이 캐릭터와 가까운 사이(호감도 높은 순 3명) — 관리자처럼 모두를 조작하는 사람도 관계를 볼 수 있게 */}
+                    {(() => {
+                      const top = bonds.filter(b => (b.a === focused.id || b.b === focused.id) && b.pts > 0).sort((x, y) => y.pts - x.pts).slice(0, 3);
+                      if (!top.length) return null;
+                      return <span>가까운 사이: {top.map(b => { const other = b.a === focused.id ? b.b : b.a; const tr = bondTier(b.pts); return <span key={other} title={`${tr.label} (${b.pts})`} style={{ marginRight: 6 }}>{nameOf(other)} <span style={{ color: '#e0567a' }}>{'♥'.repeat(Math.max(1, tr.hearts))}</span></span>; })}</span>;
+                    })()}
+                    <span>좋아하는 선물: {liked.map(id => shown.includes(id) ? <span key={id} title={GIFTS[room.era].find(g => g.id === id)?.label}>{GIFTS[room.era].find(g => g.id === id)?.icon} </span> : <span key={id} className="village-muted" title="한 번 선물하면 알 수 있어요">? </span>)}</span>
+                  </div>
+                );
+              })()}
               {focusFrame?.sleeping && (
                 <button className="btn btn-dark" style={{ marginTop: 8 }} onClick={() => wake(focused.id)} disabled={!waker}
                   title={waker ? undefined : '조작할 수 있는 캐릭터가 있어야 깨울 수 있어요'}>
@@ -224,7 +347,24 @@ export function VillageGame({ roomId, loggedIn, isAdmin, onLeave, onNeedPassword
 
         <section className="village-card">
           <h3>마을 사람들</h3>
-          <ActorList room={room} map={map} overrides={shifted} wakes={wakes} offset={offset.current} focus={focus} selected={selected} onFocus={pickActor} onWake={waker ? wake : null} />
+          <ActorList room={room} map={map} overrides={shifted} wakes={wakes} bonds={bonds} offset={offset.current} focus={focus} selected={selected} onFocus={pickActor} onWake={waker ? wake : null} />
+        </section>
+
+        <section className="village-card">
+          <h3>마을 장소</h3>
+          {/* 상점·집·채집 장소를 아이콘으로 구분하고 집은 아늑함 별을 보인다. 조작할 캐릭터가 없으면 집 구경만 할 수 있다 */}
+          <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'grid', gap: 4, fontSize: 13 }}>
+            {map.kiosk && <li>🏪 <b>광장 노점</b> <small className="village-muted">— 상점 (선물·가구)</small></li>}
+            {map.places.map(p => (
+              <li key={p.id} style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+                <span aria-hidden>{placeIcon(p) || '📍'}</span><b>{p.name}</b>
+                {p.kind === 'house' && <small className="village-muted" title="놓인 가구 가격 합 ÷ 10">아늑함 {stars(cozyStars(houseScore(room.era, houseOf(p.id).items)))}{residentsOf(p.id).length ? ` · ${residentsOf(p.id).map(a => a.name).join(', ')}` : ''}</small>}
+                {p.kind === 'shop' && <small className="village-muted">상점</small>}
+                {isGatherKind(p.kind) && <small className="village-muted">{GATHER[p.kind].label}</small>}
+                {p.kind === 'house' && !controls.length && <button className="btn btn-ghost" style={{ marginLeft: 'auto', padding: '2px 8px' }} onClick={() => setInside(p.id)}>구경하기</button>}
+              </li>
+            ))}
+          </ul>
         </section>
 
         <section className="village-card">
@@ -244,8 +384,8 @@ export function VillageGame({ roomId, loggedIn, isAdmin, onLeave, onNeedPassword
 }
 
 /* ---------------- 캔버스 ---------------- */
-function VillageCanvas({ map, room, overrides, wakes, offset, selected, focus, onTile, onActor }: {
-  map: VillageMap; room: RoomView; overrides: ActorOverride[]; wakes: WakeMark[]; offset: React.RefObject<number>;
+function VillageCanvas({ map, room, overrides, wakes, bonds, events, offset, selected, focus, onTile, onActor }: {
+  map: VillageMap; room: RoomView; overrides: ActorOverride[]; wakes: WakeMark[]; bonds: BondMark[]; events: RoomEvent[]; offset: React.RefObject<number>;
   selected: string | null; focus: string | null; onTile: (x: number, y: number) => void; onActor: (id: string) => void;
 }) {
   const wrap = useRef<HTMLDivElement>(null);
@@ -256,8 +396,8 @@ function VillageCanvas({ map, room, overrides, wakes, offset, selected, focus, o
   // 폴링마다 room 객체가 새로 와도 외형이 같으면 다시 만들지 않는다(원본 캐릭터 도트가 바뀌면 바로 반영)
   const lookKey = JSON.stringify(room.actors.map(a => [a.id, a.name, a.avatar]));
   const sprites = useMemo(() => new Map<string, PixelAvatarData | null>(room.actors.map(a => [a.id, a.avatar ?? (a.kind === 'npc' ? npcAvatar(a.id, a.name) : null)])), [lookKey]); // eslint-disable-line react-hooks/exhaustive-deps
-  const latest = useRef({ overrides, wakes, selected, focus, room, sprites });
-  latest.current = { overrides, wakes, selected, focus, room, sprites };
+  const latest = useRef({ overrides, wakes, bonds, events, selected, focus, room, sprites });
+  latest.current = { overrides, wakes, bonds, events, selected, focus, room, sprites };
   const frames = useRef<ActorFrame[]>([]);
   // 화면에 실제로 그려진 위치(걷는 중 보간된 위치) — 누르기 판정은 목적지가 아니라 보이는 자리로 한다
   const drawn = useRef(new Map<string, { x: number; y: number }>());
@@ -291,8 +431,10 @@ function VillageCanvas({ map, room, overrides, wakes, offset, selected, focus, o
     const draw = (now: number) => {
       const dt = Math.min(100, now - lastT); lastT = now;
       const t = Date.now() + (offset.current ?? 0);
-      const { overrides: ov, wakes: wk, selected: sel, focus: fo, room, sprites } = latest.current;
-      const fr = simulate(map, room.seed, room.actors, ov, t, wk);
+      const { overrides: ov, wakes: wk, bonds: bd, events: evs, selected: sel, focus: fo, room, sprites } = latest.current;
+      const fr = simulate(map, room.seed, room.actors, ov, t, wk, bd);
+      // 레벨업 연출: 최근 10초 안에 레벨이 오른 배우는 머리 위에 별이 빙글 돈다
+      const leveled = new Set(evs.filter(e => e.type === 'levelup' && t - e.at < 10_000 && t - e.at > -60_000).map(e => e.from));
       frames.current = fr;
       const W = cv.clientWidth, H = cv.clientHeight, c = cam.current, s = c.scale;
       // 카메라: 조작/선택한 캐릭터를 따라간다
@@ -394,11 +536,14 @@ function VillageCanvas({ map, room, overrides, wakes, offset, selected, focus, o
       // 글자(맨 위): 장소 이름, 캐릭터 이름·말풍선·상태
       ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
       ctx.font = `600 ${Math.max(10, Math.min(13, 5.5 * s))}px system-ui, sans-serif`;
-      for (const pl of map.places) {
+      // 장소 이름표 — 상점 🏪·집 🏠·채집 장소(🐚🎣🍄🥕🌸) 아이콘을 앞에 붙여 한눈에 구분한다 (기획서 10장)
+      const labels = [...map.places.map(pl => ({ x: pl.x, y: pl.y, text: `${placeIcon(pl)}${placeIcon(pl) ? ' ' : ''}${pl.name}` })),
+        ...(map.kiosk ? [{ x: map.kiosk.x, y: map.kiosk.y, text: '🏪 노점' }] : [])];
+      for (const pl of labels) {
         const lx = ox + (pl.x + 0.5) * TILE * s, ly = oy + (pl.y + 1.25) * TILE * s;
-        const w = ctx.measureText(pl.name).width + 10;
+        const w = ctx.measureText(pl.text).width + 10;
         ctx.fillStyle = 'rgba(20,22,30,.72)'; roundRect(ctx, lx - w / 2, ly - 8, w, 16, 6); ctx.fill();
-        ctx.fillStyle = '#fff'; ctx.fillText(pl.name, lx, ly);
+        ctx.fillStyle = '#fff'; ctx.fillText(pl.text, lx, ly);
       }
       for (const { f, p, walking } of list) {
         const a = room.actors.find(x => x.id === f.id)!;
@@ -410,6 +555,10 @@ function VillageCanvas({ map, room, overrides, wakes, offset, selected, focus, o
         ctx.fillStyle = a.kind === 'npc' ? 'rgba(70,70,80,.85)' : a.color; roundRect(ctx, sx - w / 2, sy + 2, w, 15, 7); ctx.fill();
         ctx.fillStyle = '#fff'; ctx.fillText(label, sx, sy + 9.5);
         const top = sy - size - 4;
+        if (leveled.has(f.id)) {
+          ctx.font = '16px serif';
+          for (let k = 0; k < 3; k++) { const a = now / 300 + k * 2.1; ctx.fillText('⭐', sx + Math.cos(a) * size * 0.3, top - 4 + Math.sin(a) * 4); }
+        }
         if (f.sleeping) { ctx.font = `700 ${12}px system-ui`; ctx.fillStyle = '#e8ecff'; ctx.fillText('Zz', sx + size * 0.3, top + 4 - Math.sin(now / 500) * 3); }
         else if (f.woke) { ctx.font = `800 ${15}px system-ui`; ctx.fillStyle = '#ffd166'; ctx.fillText('!', sx + size * 0.28, top + 2 - Math.abs(Math.sin(now / 150)) * 4); }
         else if (f.speech && !walking) bubble(ctx, sx, top, f.speech, '#fff', '#222');
@@ -497,13 +646,13 @@ function bubble(ctx: CanvasRenderingContext2D, x: number, y: number, text: strin
 }
 
 /* ---------------- 패널들 ---------------- */
-function ActorList({ room, map, overrides, wakes, offset, focus, selected, onFocus, onWake }: {
-  room: RoomView; map: VillageMap; overrides: ActorOverride[]; wakes: WakeMark[]; offset: number; focus: string | null; selected: string | null;
+function ActorList({ room, map, overrides, wakes, bonds, offset, focus, selected, onFocus, onWake }: {
+  room: RoomView; map: VillageMap; overrides: ActorOverride[]; wakes: WakeMark[]; bonds: BondMark[]; offset: number; focus: string | null; selected: string | null;
   onFocus: (id: string) => void; onWake: ((id: string) => void) | null;
 }) {
   const [t, setT] = useState(Date.now());
   useEffect(() => { const i = setInterval(() => setT(Date.now()), 5000); return () => clearInterval(i); }, []);
-  const frames = simulate(map, room.seed, room.actors, overrides, t + offset, wakes);
+  const frames = simulate(map, room.seed, room.actors, overrides, t + offset, wakes, bonds);
   const placeName = (id: string) => map.places.find(p => p.id === id)?.name ?? '광장';
   return (
     <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'grid', gap: 4 }}>
@@ -529,6 +678,8 @@ function ActorList({ room, map, overrides, wakes, offset, focus, selected, onFoc
 
 function Feed({ room, events }: { room: RoomView; events: RoomEvent[] }) {
   const name = (id?: string) => room.actors.find(a => a.id === id)?.name ?? '?';
+  const placeName = (id?: string) => room.places.find(p => p.id === id)?.name ?? '어딘가';
+  const cur = CURRENCY[room.era];
   const era = ERAS.find(e => e.id === room.era)!;
   const gift = (id?: string) => GIFTS[room.era].find(g => g.id === id);
   const list = [...events].reverse().slice(0, 40);
@@ -538,7 +689,10 @@ function Feed({ room, events }: { room: RoomView; events: RoomEvent[] }) {
       {list.map(e => (
         <li key={e.id} style={{ fontSize: 13 }}>
           <span className="village-muted">{kst(e.at)} </span>
-          {e.type === 'gift' && <>🎁 <b>{name(e.from)}</b> → <b>{name(e.to)}</b>: {gift(e.item)?.icon} {gift(e.item)?.label}</>}
+          {e.type === 'gift' && <>🎁 <b>{name(e.from)}</b> → <b>{name(e.to)}</b>: {gift(e.item)?.icon} {gift(e.item)?.label}{e.liked ? ' 💖' : ''}</>}
+          {e.type === 'levelup' && <>⭐ <b>{josa(name(e.from), '이/가')}</b> 레벨 {e.level}이 됐어요{titleOf(e.level ?? 0) ? ` — 칭호 ‘${titleOf(e.level ?? 0)}’` : ''}</>}
+          {e.type === 'gather' && <>🧺 <b>{josa(name(e.from), '이/가')}</b> {placeName(e.place)}에서 {e.coins ? `${e.coins} ${cur.name}어치를 모았어요` : '한 바퀴 둘러봤어요'}</>}
+          {e.type === 'house' && <>🏠 <b>{josa(name(e.from), '이/가')}</b> {josa(placeName(e.place), '을/를')} {e.level}단계로 넓혔어요</>}
           {e.type === 'message' && <>{era.id === 'sf' ? '📡' : era.id === 'past' ? '✉️' : '📱'} <b>{josa(name(e.from), '이/가')}</b> <b>{name(e.to)}</b>에게 {era.verb}</>}
           {e.type === 'game' && <>🎲 <b>{name(e.from)}</b> — {MINIGAMES.find(g => g.id === e.game)?.label} {e.score}점</>}
           {e.type === 'wake' && (e.from === e.to ? <>⏰ <b>{josa(name(e.from), '이/가')}</b> 잠에서 깼어요</> : <>⏰ <b>{josa(name(e.from), '이/가')}</b> <b>{josa(name(e.to), '을/를')}</b> 깨웠어요</>)}
@@ -548,17 +702,26 @@ function Feed({ room, events }: { room: RoomView; events: RoomEvent[] }) {
   );
 }
 
-function GiftPanel({ room, from, onSend }: { room: RoomView; from: string; onSend: (to: string, item: string) => void }) {
+/** 선물 주기 — 가방에 있는 선물만 고를 수 있다(무료 선물 없음). 없으면 상점으로 안내 (v3 사용자 요청) */
+function GiftPanel({ room, from, inv, onSend, onShop }: { room: RoomView; from: string; inv: Record<string, number>; onSend: (to: string, item: string) => void; onShop: () => void }) {
   const others = room.actors.filter(a => a.id !== from);
   const [to, setTo] = useState(others[0]?.id ?? '');
+  const mine = GIFTS[room.era].filter(g => (inv[g.id] ?? 0) > 0);
   return (
     <div style={{ display: 'grid', gap: 8 }}>
       <label>받는 사람 <select value={to} onChange={e => setTo(e.target.value)}>{others.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}</select></label>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(92px, 1fr))', gap: 6 }}>
-        {GIFTS[room.era].map(g => (
-          <button key={g.id} type="button" className="village-gift" onClick={() => to && onSend(to, g.id)}><span style={{ fontSize: 26 }}>{g.icon}</span>{g.label}</button>
-        ))}
-      </div>
+      {!mine.length ? (
+        <div style={{ display: 'grid', gap: 6 }}>
+          <p className="village-muted" style={{ margin: 0 }}>가방에 선물이 없어요. 상점에서 재화로 사 오세요 — 좋아하는 선물을 주면 호감도가 두 배로 올라요.</p>
+          <button className="btn btn-dark" onClick={onShop}>🏪 상점 가기</button>
+        </div>
+      ) : (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(92px, 1fr))', gap: 6 }}>
+          {mine.map(g => (
+            <button key={g.id} type="button" className="village-gift" onClick={() => to && onSend(to, g.id)}><span style={{ fontSize: 26 }}>{g.icon}</span>{g.label}<small>×{inv[g.id]}</small></button>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -601,7 +764,7 @@ function GamePanel({ room, actor, scores, start, submit, flip, onMemoryDone }: {
   start: (game: MinigameId) => Promise<{ gameId: string; seed?: string } | null>;
   submit: (game: MinigameId, gameId: string, input: number[]) => Promise<void>;
   flip: (gameId: string, card: number) => Promise<FlipResult | null>;
-  onMemoryDone: (score: number) => void;
+  onMemoryDone: (score: number, reward?: RewardView) => void;
 }) {
   const [game, setGame] = useState<{ id: MinigameId; gameId: string; seed?: string } | null>(null);
   const [busy, setBusy] = useState(false);
@@ -617,14 +780,19 @@ function GamePanel({ room, actor, scores, start, submit, flip, onMemoryDone }: {
     setGame(null);
     if (g) void submitRef.current(g.id, g.gameId, input);
   }, []);
+  // 마지막 카드를 맞춘 응답에 보상(재화·경험치)이 실려 온다 — 판이 끝날 때 토스트로 넘긴다
+  const lastReward = useRef<RewardView | undefined>(undefined);
   const memoryDone = useCallback((score: number) => {
     gameRef.current = null;
     setGame(null);
-    doneRef.current(score);
+    doneRef.current(score, lastReward.current);
+    lastReward.current = undefined;
   }, []);
-  const memoryFlip = useCallback((card: number) => {
+  const memoryFlip = useCallback(async (card: number) => {
     const g = gameRef.current;
-    return g ? flip(g.gameId, card) : Promise.resolve(null);
+    const r = g ? await flip(g.gameId, card) : null;
+    if (r && (r as FlipResult & { reward?: RewardView }).reward) lastReward.current = (r as FlipResult & { reward?: RewardView }).reward;
+    return r;
   }, [flip]);
   const name = (id: string) => room.actors.find(a => a.id === id)?.name ?? '?';
   if (game?.id === 'catch' && game.seed) return <CatchGame key={game.gameId} era={room.era} seed={game.seed} onFinish={finish} />;

@@ -27,20 +27,20 @@ export interface VillageScene {
   lights: Light[];
 }
 
-type Painter = {
+export type Painter = {
   ctx: CanvasRenderingContext2D;
   r: (x: number, y: number, w: number, h: number, c: string) => void;
   p: (x: number, y: number, c: string) => void;
 };
-function painter(cv: HTMLCanvasElement): Painter {
+export function painter(cv: HTMLCanvasElement): Painter {
   const ctx = cv.getContext('2d')!;
   const r = (x: number, y: number, w: number, h: number, c: string) => { if (w > 0 && h > 0) { ctx.fillStyle = c; ctx.fillRect(Math.round(x), Math.round(y), Math.round(w), Math.round(h)); } };
   return { ctx, r, p: (x, y, c) => r(x, y, 1, 1, c) };
 }
-const canvas = (w: number, h: number) => { const cv = document.createElement('canvas'); cv.width = w; cv.height = h; return cv; };
+export const canvas = (w: number, h: number) => { const cv = document.createElement('canvas'); cv.width = w; cv.height = h; return cv; };
 
 /** 빛이 왼쪽 위에서 오는 상자: 셀프컬러 외곽선 + 위·왼쪽 밝은 면 + 아래·오른쪽 그림자 */
-function box(P: Painter, x: number, y: number, w: number, h: number, base: string) {
+export function box(P: Painter, x: number, y: number, w: number, h: number, base: string) {
   const [o, s, m, l] = ramp(base);
   P.r(x, y, w, h, o);
   P.r(x + 1, y + 1, w - 2, h - 2, m);
@@ -50,7 +50,7 @@ function box(P: Painter, x: number, y: number, w: number, h: number, base: strin
   P.r(x + w - 2, y + 2, 1, h - 3, s);
 }
 /** 창문 — 틀(셀프컬러) + 유리 + 왼쪽 위 반사 한 점. 밤 불빛 자리를 lights에 넣는다 */
-function windowAt(P: Painter, x: number, y: number, w: number, h: number, frame: string, glass: string, lights: Light[] | null, cross = true) {
+export function windowAt(P: Painter, x: number, y: number, w: number, h: number, frame: string, glass: string, lights: Light[] | null, cross = true) {
   const [fo] = ramp(frame);
   const [, gs, gm, gl, gh] = ramp(glass);
   P.r(x, y, w, h, fo);
@@ -63,7 +63,7 @@ function windowAt(P: Painter, x: number, y: number, w: number, h: number, frame:
   if (cross && h >= 6) P.r(x + 1, y + Math.floor(h / 2), w - 2, 1, fo);
   lights?.push({ x: x + w / 2, y: y + h / 2, r: Math.max(w, h) * 1.6 + 6, color: '' });
 }
-function door(P: Painter, x: number, y: number, w: number, h: number, base: string, knob = '#e8c35a') {
+export function door(P: Painter, x: number, y: number, w: number, h: number, base: string, knob = '#e8c35a') {
   const [o, s, m, l] = ramp(base);
   P.r(x, y, w, h, o);
   P.r(x + 1, y + 1, w - 2, h - 1, m);
@@ -73,7 +73,7 @@ function door(P: Painter, x: number, y: number, w: number, h: number, base: stri
 }
 
 /* ================= 시대별 재질 ================= */
-const MAT = {
+export const MAT = {
   past: { plaster: '#e9dfc6', wood: '#7a5134', roof: '#55606f', thatch: '#c9a35a', stone: '#9b9588', paper: '#f3e6c2', red: '#b5453b', green: '#3e8a6c', gold: '#d8b25a' },
   modern: { wall: '#efe7d8', brick: '#b65c43', concrete: '#c7c2b6', glass: '#7db7dc', door: '#7a5a43', roofs: ['#c4544c', '#3f8a8c', '#5b6fae', '#8a6a4f'] },
   sf: { hull: '#d5dcea', panel: '#8d9abb', dark: '#3a4468', cyan: '#5ff2ff', magenta: '#ff5fd2', amber: '#ffb347', glass: '#64d4ff' },
@@ -145,7 +145,7 @@ function gableRoof(P: Painter, cx: number, y: number, h: number, base: string) {
   P.r(cx - half - 1, y + h, half * 2 + 2, 1, o);
   P.r(cx - half, y + h - 1, half * 2, 1, s);
 }
-function dome(P: Painter, cx: number, cy: number, rad: number, base: string) {
+export function dome(P: Painter, cx: number, cy: number, rad: number, base: string) {
   // 반구(돔): 가로 위치로 명암 — 왼쪽 위 하이라이트, 오른쪽 그늘, 셀프컬러 외곽선
   const [o, s, m, l, hi] = ramp(base);
   for (let yy = cy - rad; yy <= cy; yy++) {
@@ -161,7 +161,7 @@ function dome(P: Painter, cx: number, cy: number, rad: number, base: string) {
   P.r(cx - Math.round(rad * 0.55), cy - Math.round(rad * 0.6), 3, 2, hi);
 }
 /** 창호(격자무늬 종이창) */
-function lattice(P: Painter, x: number, y: number, w: number, h: number, frame: string, paper: string, lights: Light[]) {
+export function lattice(P: Painter, x: number, y: number, w: number, h: number, frame: string, paper: string, lights: Light[]) {
   const [fo, fs] = ramp(frame);
   P.r(x, y, w, h, fo);
   P.r(x + 1, y + 1, w - 2, h - 2, paper);
@@ -390,10 +390,14 @@ function artSf(kind: PlaceKind, v: number, rnd: () => number): Art {
   return featureArt('sf', kind, rnd);
 }
 
-/** 건물이 아닌 장소(물가·숲·밭)의 표지 소품 */
+/** 건물이 아닌 장소(지형 장소)의 표지 소품 — 우물·물가·숲·산·밭·정원 (v3: 지형 이름 장소는 건물 대신 지형지물) */
 function featureArt(era: VillageEra, kind: PlaceKind, rnd: () => number): Art {
   const L: Light[] = [];
-  if (kind === 'water') {
+  if (kind === 'sea') return seaMarkArt(era);
+  if (kind === 'river' || kind === 'lake') return fishingArt(era, kind);
+  if (kind === 'mountain') return summitArt(era);
+  if (kind === 'garden') return benchArt(era);
+  if (kind === 'well') {
     if (era === 'past') {
       // 우물: 돌 둘레, 나무 지붕틀과 두레박
       const cv = canvas(26, 28), P = painter(cv);
@@ -448,7 +452,7 @@ function featureArt(era: VillageEra, kind: PlaceKind, rnd: () => number): Art {
     const cv = canvas(20, 28), P = painter(cv);
     P.r(9, 8, 2, 20, '#6b4a2f'); P.r(2, 12, 16, 2, '#6b4a2f');
     box(P, 5, 13, 10, 8, '#b5453b'); P.r(6, 14, 2, 6, shade('#b5453b', 1));
-    box(P, 6, 3, 8, 7, '#e9d9a8'); P.p(8, 6, '#3a2f2a'); P.p(11, 6, '#3a2f2a');
+    box(P, 6, 3, 8, 7, '#e9d9a8'); P.r(8, 6, 1, 1, '#3a2f2a'); P.r(11, 6, 1, 1, '#3a2f2a');
     thatchRoof(P, 3, 0, 14, 3, '#c9a35a', rnd);
     return { img: cv, lights: L };
   }
@@ -472,7 +476,186 @@ function featureArt(era: VillageEra, kind: PlaceKind, rnd: () => number): Art {
   L.push({ x: 9, y: 17, r: 12, color: 'rgba(120,255,180,' }, { x: 27, y: 17, r: 12, color: 'rgba(120,255,180,' });
   return { img: cv, lights: L };
 }
-function blob(P: Painter, cx: number, cy: number, rw: number, rh: number, base: string, rnd: () => number) {
+
+/** 바닷가 장소 표지 — 과거 그물 덕대, 현대 구조대 망루, SF 부두 신호탑 */
+function seaMarkArt(era: VillageEra): Art {
+  const L: Light[] = [];
+  if (era === 'past') {
+    // 그물 말리는 나무 덕대: 기둥 두 개 + 가로대, 늘어진 그물(마름모 무늬), 아래 광주리
+    const cv = canvas(28, 28), P = painter(cv);
+    box(P, 3, 6, 3, 22, MAT.past.wood); box(P, 22, 6, 3, 22, MAT.past.wood);
+    box(P, 1, 5, 26, 3, shade(MAT.past.wood, 1));
+    const net = '#6f7f6a', [no] = ramp(net);
+    for (let y = 8; y < 21; y++) for (let x = 6; x < 22; x++) if ((x + y) % 4 === 0 || (x - y + 40) % 4 === 0) P.p(x, y, y > 18 ? no : net);
+    P.r(6, 20, 16, 1, no);
+    box(P, 9, 22, 10, 6, '#b08a4f'); P.r(10, 23, 8, 1, shade('#b08a4f', 1));
+    return { img: cv, lights: L };
+  }
+  if (era === 'modern') {
+    // 하얀 구조대 망루 + 빨간 구명 튜브 + 줄무늬 파라솔
+    const cv = canvas(30, 34), P = painter(cv);
+    for (const x of [5, 15]) box(P, x, 14, 2, 20, '#e9e6df');
+    P.r(5, 24, 12, 1, ramp('#e9e6df')[0]);
+    box(P, 3, 9, 16, 6, '#de5a50'); P.r(4, 10, 14, 1, shade('#de5a50', 1));
+    box(P, 2, 6, 18, 3, '#f7f1e6');
+    const ring = ramp('#e8504a');
+    for (let a = 0; a < 16; a++) { const x = 10 + Math.round(Math.cos(a / 16 * Math.PI * 2) * 3), y = 19 + Math.round(Math.sin(a / 16 * Math.PI * 2) * 3); P.p(x, y, a % 4 < 2 ? ring[2] : '#f7f1e6'); }
+    // 파라솔
+    for (let i = 0; i < 6; i++) { const half = 2 + i; for (let x = -half; x < half; x++) P.p(24 + x, 10 + i, Math.floor((x + 12) / 3) % 2 ? '#3f8a8c' : '#f7f1e6'); }
+    P.r(18, 15, 12, 1, ramp('#3f8a8c')[0]); P.r(24, 16, 1, 18, '#8d96a3');
+    return { img: cv, lights: L };
+  }
+  // SF: 부두 신호탑 — 금속 기둥, 회전 표지등, 빛나는 띠
+  const cv = canvas(20, 40), P = painter(cv);
+  box(P, 4, 32, 12, 8, MAT.sf.panel);
+  box(P, 8, 6, 4, 27, MAT.sf.dark);
+  for (let y = 10; y < 32; y += 5) P.r(9, y, 2, 2, MAT.sf.cyan);
+  box(P, 5, 1, 10, 6, MAT.sf.hull); P.r(6, 3, 8, 2, MAT.sf.amber); P.r(6, 3, 3, 1, shade(MAT.sf.amber, 2));
+  L.push({ x: 10, y: 4, r: 22, color: 'rgba(255,180,80,' }, { x: 10, y: 20, r: 12, color: 'rgba(110,240,255,' });
+  return { img: cv, lights: L };
+}
+/** 선착장 끝 배 — 과거 나룻배, 현대 요트, SF 우주 부두의 셔틀. dir은 바다 쪽 */
+export function boatArt(era: VillageEra, horizontal: boolean): HTMLCanvasElement {
+  // 위에서 본 배를 물결 방향에 맞춰 눕힌다(가로·세로 두 가지)
+  const W = horizontal ? 30 : 16, H = horizontal ? 14 : 30;
+  const cv = canvas(W, H), P = painter(cv);
+  const hull = era === 'past' ? '#8a5a36' : era === 'modern' ? '#f1efe8' : MAT.sf.hull;
+  const [o, s, m, l] = ramp(hull);
+  const len = horizontal ? W : H, wid = horizontal ? H : W;
+  for (let i = 0; i < len; i++) {
+    const t = i / (len - 1);
+    const half = Math.max(1, Math.round((wid / 2 - 1) * Math.sin(Math.PI * Math.min(1, t * 1.15))));
+    for (let j = -half; j < half; j++) {
+      const edge = j === -half || j === half - 1;
+      const c = edge ? o : j < -half / 2 ? l : j > half / 3 ? s : m;
+      if (horizontal) P.p(i, Math.floor(wid / 2) + j, c); else P.p(Math.floor(wid / 2) + j, i, c);
+    }
+  }
+  const mid = (a: number, b: number, w: number, h: number, c: string) => (horizontal ? P.r(a, b, w, h, c) : P.r(b, a, h, w, c));
+  if (era === 'past') {
+    // 가로 널빤지 두 장 + 노
+    mid(Math.round(len * 0.35), Math.floor(wid / 2) - 3, 2, 6, shade(hull, 1));
+    mid(Math.round(len * 0.65), Math.floor(wid / 2) - 3, 2, 6, shade(hull, 1));
+    mid(Math.round(len * 0.2), Math.floor(wid / 2) + 2, Math.round(len * 0.5), 1, '#c9a35a');
+  } else if (era === 'modern') {
+    // 요트: 파란 선체 띠 + 갑판실 + 돛대 자리
+    mid(2, Math.floor(wid / 2) + 2, len - 4, 1, '#2f6fb0');
+    mid(Math.round(len * 0.3), Math.floor(wid / 2) - 2, Math.round(len * 0.3), 4, '#7db7dc');
+    mid(Math.round(len * 0.62), Math.floor(wid / 2) - 1, 2, 2, '#4a505c');
+  } else {
+    // 셔틀: 조종석 유리 + 추진기 불빛
+    mid(Math.round(len * 0.62), Math.floor(wid / 2) - 2, Math.round(len * 0.22), 4, MAT.sf.glass);
+    mid(1, Math.floor(wid / 2) - 2, 2, 4, MAT.sf.cyan);
+    mid(Math.round(len * 0.25), Math.floor(wid / 2) - 3, Math.round(len * 0.3), 1, MAT.sf.magenta);
+  }
+  return cv;
+}
+/** 물가(강·호수) 낚시터 — 과거 어망 바구니와 대나무 낚싯대, 현대 접이식 의자·아이스박스, SF 낚시 드론 거치대 */
+function fishingArt(era: VillageEra, kind: PlaceKind): Art {
+  const L: Light[] = [];
+  const cv = canvas(26, 30), P = painter(cv);
+  if (era === 'past') {
+    box(P, 4, 20, 10, 9, '#b08a4f');
+    for (let x = 5; x < 13; x += 2) P.r(x, 22, 1, 6, shade('#b08a4f', -1));
+    P.r(5, 21, 8, 1, shade('#b08a4f', 1));
+    for (let i = 0; i < 22; i++) P.p(12 + Math.round(i * 0.55), 22 - i, i < 3 ? '#6b4a2f' : '#8aa24a');
+    P.r(24, 1, 1, 10, '#e9e6df');
+    if (kind === 'lake') { box(P, 16, 24, 8, 5, MAT.past.wood); }
+    return { img: cv, lights: L };
+  }
+  if (era === 'modern') {
+    box(P, 3, 21, 9, 8, '#3f86c4'); P.r(4, 22, 7, 1, '#f7f1e6');
+    for (const x of [14, 21]) P.r(x, 20, 1, 9, '#4a505c');
+    box(P, 13, 17, 10, 4, '#2f8a5a'); box(P, 13, 11, 10, 7, '#2f8a5a');
+    for (let i = 0; i < 20; i++) P.p(22 + Math.round(i * 0.15), 18 - i, '#3d4350');
+    P.r(25, 0, 1, 12, '#e9e6df');
+    return { img: cv, lights: L };
+  }
+  box(P, 6, 22, 14, 7, MAT.sf.panel); P.r(7, 23, 12, 1, MAT.sf.cyan);
+  box(P, 11, 10, 4, 13, MAT.sf.dark);
+  box(P, 6, 4, 14, 6, MAT.sf.hull); P.r(8, 6, 3, 2, MAT.sf.cyan); P.r(15, 6, 3, 2, MAT.sf.cyan);
+  L.push({ x: 13, y: 7, r: 14, color: 'rgba(110,240,255,' });
+  return { img: cv, lights: L };
+}
+/** 산 꼭대기 표지석 — 과거 비석, 현대 정상 표지목과 깃발, SF 측량 신호기 */
+function summitArt(era: VillageEra): Art {
+  const L: Light[] = [];
+  if (era === 'past') {
+    const cv = canvas(18, 30), P = painter(cv);
+    box(P, 1, 25, 16, 5, MAT.past.stone);
+    box(P, 4, 6, 10, 20, '#a8a294');
+    for (const y of [10, 14, 18]) P.r(8, y, 2, 2, shade('#a8a294', -2));
+    hanokRoof(P, 3, 3, 12, 3, MAT.past.roof);
+    return { img: cv, lights: L };
+  }
+  if (era === 'modern') {
+    const cv = canvas(20, 32), P = painter(cv);
+    box(P, 2, 26, 16, 6, '#9095a0');
+    box(P, 8, 10, 4, 17, '#9a6b45');
+    box(P, 3, 12, 14, 7, '#f1e4cf'); P.r(5, 15, 10, 1, '#5a3d2a');
+    P.r(10, 0, 1, 11, '#4a505c'); box(P, 11, 1, 8, 5, '#de5a50');
+    return { img: cv, lights: L };
+  }
+  const cv = canvas(18, 36), P = painter(cv);
+  box(P, 2, 30, 14, 6, MAT.sf.panel);
+  for (let i = 0; i < 24; i++) { P.p(4 + Math.floor(i / 4), 30 - i, MAT.sf.dark); P.p(13 - Math.floor(i / 4), 30 - i, MAT.sf.dark); }
+  P.r(8, 2, 2, 6, MAT.sf.magenta); P.r(8, 2, 1, 2, shade(MAT.sf.magenta, 2));
+  L.push({ x: 9, y: 4, r: 18, color: 'rgba(255,110,220,' });
+  return { img: cv, lights: L };
+}
+/** 정원 벤치 — 과거 돌 평상, 현대 나무 벤치와 가로등, SF 부유 벤치 */
+function benchArt(era: VillageEra): Art {
+  const L: Light[] = [];
+  const cv = canvas(30, 26), P = painter(cv);
+  if (era === 'past') {
+    box(P, 2, 15, 26, 6, MAT.past.stone);
+    for (const x of [4, 22]) box(P, x, 20, 4, 6, shade(MAT.past.stone, -1));
+    P.r(3, 16, 24, 1, shade(MAT.past.stone, 1));
+    box(P, 11, 9, 8, 6, '#c96a8a'); P.r(12, 10, 3, 2, shade('#c96a8a', 1));   // 꽃 화분
+    return { img: cv, lights: L };
+  }
+  if (era === 'modern') {
+    box(P, 2, 11, 22, 4, '#9a6b45'); box(P, 2, 16, 22, 3, '#b07d52');
+    for (const x of [3, 21]) box(P, x, 14, 2, 12, '#3d4350');
+    P.r(27, 4, 2, 22, '#4a505c'); box(P, 25, 1, 6, 4, '#3d4350'); P.r(26, 4, 4, 1, '#fff2b0');
+    L.push({ x: 28, y: 4, r: 22, color: '' });
+    return { img: cv, lights: L };
+  }
+  box(P, 3, 12, 24, 5, MAT.sf.hull); P.r(4, 13, 22, 1, shade(MAT.sf.hull, 1));
+  P.r(5, 20, 20, 1, MAT.sf.cyan); P.r(8, 22, 14, 1, shade(MAT.sf.cyan, -1));
+  L.push({ x: 15, y: 20, r: 14, color: 'rgba(110,240,255,' });
+  return { img: cv, lights: L };
+}
+/** 광장 노점(상점이 없는 방) — 과거 좌판과 차양, 현대 노점 수레와 파라솔, SF 자판 단말기 */
+export function kioskArt(era: VillageEra): Art {
+  const L: Light[] = [];
+  if (era === 'past') {
+    const cv = canvas(30, 30), P = painter(cv);
+    for (const x of [2, 26]) box(P, x, 8, 2, 22, MAT.past.wood);
+    for (let x = 0; x < 30; x++) P.r(x, 6, 1, 4, Math.floor(x / 3) % 2 ? '#e9dfc6' : '#4f6f8f');
+    P.r(0, 5, 30, 1, ramp('#4f6f8f')[0]);
+    box(P, 3, 19, 24, 6, MAT.past.wood);
+    for (const [x, c] of [[6, '#e98aa4'], [12, '#f2d16b'], [18, '#8fb84e']] as const) { box(P, x, 15, 5, 5, c); P.p(x + 1, 16, shade(c, 2)); }
+    return { img: cv, lights: L };
+  }
+  if (era === 'modern') {
+    const cv = canvas(30, 32), P = painter(cv);
+    box(P, 3, 17, 24, 10, '#e0a43a'); P.r(4, 18, 22, 1, shade('#e0a43a', 1));
+    box(P, 5, 20, 20, 4, '#f7f1e6'); P.r(8, 21, 3, 2, '#de5a50'); P.r(14, 21, 3, 2, '#2f6fb0');
+    for (const x of [6, 22]) { P.r(x, 27, 3, 3, '#3d4350'); P.p(x + 1, 28, '#8d96a3'); }
+    for (let i = 0; i < 7; i++) { const half = 3 + i * 2; for (let x = -half; x < half; x++) P.p(15 + x, 2 + i, Math.floor((x + 20) / 4) % 2 ? '#de5a50' : '#f7f1e6'); }
+    P.r(15, 9, 1, 8, '#8d96a3');
+    return { img: cv, lights: L };
+  }
+  const cv = canvas(24, 34), P = painter(cv);
+  box(P, 2, 6, 20, 28, MAT.sf.dark);
+  P.r(4, 9, 16, 9, ramp(MAT.sf.glass)[0]); P.r(5, 10, 14, 7, MAT.sf.glass); P.r(5, 10, 14, 1, shade(MAT.sf.glass, 2));
+  for (let x = 6; x < 18; x += 4) P.r(x, 13, 2, 3, MAT.sf.magenta);
+  P.r(6, 22, 12, 2, MAT.sf.amber); P.r(4, 2, 16, 4, MAT.sf.cyan); P.r(4, 2, 16, 1, shade(MAT.sf.cyan, 2));
+  L.push({ x: 12, y: 13, r: 20, color: 'rgba(110,240,255,' });
+  return { img: cv, lights: L };
+}
+export function blob(P: Painter, cx: number, cy: number, rw: number, rh: number, base: string, rnd: () => number) {
   // 둥근 수관: 셀프컬러 외곽선, 왼쪽 위 밝은 잎 덩어리, 아래 오른쪽 그늘
   const [o, s, m, l, hi] = ramp(base);
   for (let y = -rh; y <= rh; y++) for (let x = -rw; x <= rw; x++) {
@@ -484,7 +667,7 @@ function blob(P: Painter, cx: number, cy: number, rw: number, rh: number, base: 
     P.p(cx + x, cy + y, edge ? o : lit ? (rnd() < 0.2 ? hi : l) : dark ? (rnd() < 0.25 ? m : s) : rnd() < 0.12 ? l : m);
   }
 }
-function crystal(P: Painter, cx: number, bottom: number, h: number, base: string) {
+export function crystal(P: Painter, cx: number, bottom: number, h: number, base: string) {
   // 수정 기둥: 왼쪽 면 밝게, 오른쪽 면 어둡게, 꼭짓점 하이라이트
   const [o, s, m, l, hi] = ramp(base);
   const w = Math.max(2, Math.round(h / 5));
@@ -500,13 +683,17 @@ function crystal(P: Painter, cx: number, bottom: number, h: number, base: string
 }
 
 /* ================= 지형 ================= */
-type Terrain = { grass: string; path: string; plaza: string; water: string; trunk: string; rock: string; flowers: string[]; crop: string; soil: string };
+// sand·deep·cliff·reed는 v3 지형 장소용 — 시대마다 색이 다르다(과거 누런 모래·쪽빛 바다, 현대 밝은 모래·파란 바다, SF 보랏빛 먼지·청록 냉각수)
+type Terrain = { grass: string; path: string; plaza: string; water: string; trunk: string; rock: string; flowers: string[]; crop: string; soil: string; sand: string; deep: string; cliff: string; reed: string };
 const TERRAIN: Record<VillageEra, Terrain> = {
-  past: { grass: '#7aa95a', path: '#c3a06b', plaza: '#b7ad98', water: '#4b8fba', trunk: '#6b4a2f', rock: '#8f8a80', flowers: ['#f2d16b', '#e98aa4', '#f4f1e6'], crop: '#8fb84e', soil: '#8a6a45' },
-  modern: { grass: '#84b961', path: '#c6c1b5', plaza: '#d7c6ab', water: '#4a96d2', trunk: '#71523a', rock: '#9095a0', flowers: ['#ffffff', '#f39bb5', '#ffd166'], crop: '#76b84f', soil: '#7d5e43' },
-  sf: { grass: '#29335f', path: '#46527f', plaza: '#4c5890', water: '#1fbdb2', trunk: '#4a3d73', rock: '#5d6680', flowers: ['#ff7ad9', '#7affd1', '#b48cff'], crop: '#4ad27a', soil: '#2a3050' },
+  past: { grass: '#7aa95a', path: '#c3a06b', plaza: '#b7ad98', water: '#4b8fba', trunk: '#6b4a2f', rock: '#8f8a80', flowers: ['#f2d16b', '#e98aa4', '#f4f1e6'], crop: '#8fb84e', soil: '#8a6a45', sand: '#dcc493', deep: '#2f6f9a', cliff: '#8a7f6e', reed: '#8aa24a' },
+  modern: { grass: '#84b961', path: '#c6c1b5', plaza: '#d7c6ab', water: '#4a96d2', trunk: '#71523a', rock: '#9095a0', flowers: ['#ffffff', '#f39bb5', '#ffd166'], crop: '#76b84f', soil: '#7d5e43', sand: '#e8d6a6', deep: '#2d6aa8', cliff: '#8f8c86', reed: '#7da658' },
+  sf: { grass: '#29335f', path: '#46527f', plaza: '#4c5890', water: '#1fbdb2', trunk: '#4a3d73', rock: '#5d6680', flowers: ['#ff7ad9', '#7affd1', '#b48cff'], crop: '#4ad27a', soil: '#2a3050', sand: '#857bb5', deep: '#0f7f8f', cliff: '#3f4668', reed: '#3fd6a0' },
 };
-const isGrassy = (t: VillageTile | undefined) => t === 'grass' || t === 'flower' || t === 'tree' || t === 'rock';
+const isGrassy = (t: VillageTile | undefined) => t === 'grass' || t === 'flower' || t === 'tree' || t === 'rock' || t === 'reed';
+/** 물 위 타일(다리·선착장 아래도 물) */
+const isWet = (t: VillageTile | undefined) => t === 'water' || t === 'deep' || t === 'bridge' || t === 'dock';
+
 
 /** 칸 모서리 값 잡음(시드 고정) — 풀색이 바둑판 대신 큰 얼룩으로 바뀌게 */
 function valueNoise(seed: string, w: number, h: number, cell: number) {
@@ -521,11 +708,11 @@ function valueNoise(seed: string, w: number, h: number, cell: number) {
   };
 }
 
-function drawGround(map: VillageMap, seed: string, frame: number, fieldNear: Set<string>, covered: Set<string>): HTMLCanvasElement {
+function drawGround(map: VillageMap, seed: string, frame: number, covered: Set<string>): HTMLCanvasElement {
   const W = map.width * TILE, H = map.height * TILE;
   const cv = canvas(W, H), P = painter(cv);
   const T = TERRAIN[map.era];
-  const G = ramp(T.grass), D = ramp(T.path), Z = ramp(T.plaza), Wt = ramp(T.water);
+  const G = ramp(T.grass), D = ramp(T.path), Z = ramp(T.plaza), Wt = ramp(T.water), Dp = ramp(T.deep), Sd = ramp(T.sand);
   const noise = valueNoise(seed, W, H, 40);
   // 같은 시드 → 두 프레임이 물결 말고는 똑같도록 난수열을 프레임과 무관하게 쓴다
   const rnd = seededRandom(`ground|${seed}`);
@@ -605,31 +792,94 @@ function drawGround(map: VillageMap, seed: string, frame: number, fieldNear: Set
         if ((tx + ty) % 2 === 0) P.p(X + 8, Y + 8, '#7ff3ff');
       }
       edgeBlend(P, X, Y, up, dn, lf, rt, G, Z, tr);
-    } else if (t === 'water') {
-      // 물: 사방이 물이면 깊어(어둡고), 위가 땅이면 둑 그림자 + 거품 줄, 나머지 가장자리는 밝은 물가선
-      const deep = up === 'water' && dn === 'water' && lf === 'water' && rt === 'water';
-      P.r(X, Y, TILE, TILE, deep ? Wt[1] : Wt[2]);
+    } else if (t === 'water' || t === 'deep' || t === 'bridge' || t === 'dock') {
+      // 물: 얕은 물(water)·깊은 바다(deep) — 사방이 물이면 더 어둡게, 땅과 맞닿은 쪽은 둑 그림자·거품·물가선.
+      // 다리·선착장은 아래에 물을 먼저 그리고 그 위에 널을 깐다 (v3 지형 장소)
+      const wetN = [up, dn, lf, rt].filter(isWet).length;
+      const under = t === 'deep' || ((t === 'bridge' || t === 'dock') && [up, dn, lf, rt].some(n => n === 'deep')) ? 'deep' : 'water';
+      const Wc = under === 'deep' ? Dp : Wt;
+      const enclosed = wetN === 4 && [up, dn, lf, rt].every(n => n !== undefined);
+      P.r(X, Y, TILE, TILE, enclosed || under === 'deep' ? Wc[1] : Wc[2]);
       const wr = seededRandom(`wave|${seed}|${tx}|${ty}|${frame}`);
       for (let i = 0; i < 3; i++) {
         const wx = X + 1 + Math.floor(wr() * 11), wy = Y + 3 + Math.floor(wr() * 11);
-        P.r(wx, wy, 3 + Math.floor(wr() * 2), 1, deep ? Wt[2] : Wt[3]);
+        P.r(wx, wy, 3 + Math.floor(wr() * 2), 1, enclosed || under === 'deep' ? Wc[2] : Wc[3]);
       }
-      if (wr() < 0.4) P.p(X + Math.floor(wr() * 15), Y + Math.floor(wr() * 15), Wt[4]);
-      if (up !== 'water' && up !== undefined) { P.r(X, Y, TILE, 2, mix(G[0], Wt[0], 0.5)); P.r(X, Y + 2, TILE, 1, Wt[4]); }
-      if (dn !== 'water' && dn !== undefined) P.r(X, Y + TILE - 1, TILE, 1, Wt[3]);
-      if (lf !== 'water' && lf !== undefined) P.r(X, Y, 1, TILE, Wt[3]);
-      if (rt !== 'water' && rt !== undefined) P.r(X + TILE - 1, Y, 1, TILE, Wt[1]);
+      if (wr() < 0.4) { const sx = X + Math.floor(wr() * 14), sy = Y + Math.floor(wr() * 15); P.r(sx, sy, 2, 1, Wc[4]); }
+      // 물가 — 모래와 맞닿으면 하얀 거품 줄(물결 프레임마다 한 칸씩 밀려온다), 풀과 맞닿으면 둑 그림자
+      const foam = Wt[4];
+      if (up !== undefined && !isWet(up)) {
+        if (up === 'sand') { P.r(X, Y, TILE, 1, Sd[1]); for (let i = 0; i < TILE; i += 4) P.r(X + i + frame, Y + 1, 3, 1, foam); }
+        else { P.r(X, Y, TILE, 2, mix(G[0], Wt[0], 0.5)); P.r(X, Y + 2, TILE, 1, Wt[4]); }
+      }
+      if (dn !== undefined && !isWet(dn)) { if (dn === 'sand') for (let i = 0; i < TILE; i += 4) P.r(X + i + 1 - frame, Y + TILE - 2, 3, 1, foam); P.r(X, Y + TILE - 1, TILE, 1, Wc[3]); }
+      if (lf !== undefined && !isWet(lf)) { P.r(X, Y, 1, TILE, lf === 'sand' ? foam : Wc[3]); if (lf === 'sand') for (let i = 0; i < TILE; i += 5) P.r(X + 1, Y + i + frame, 1, 2, foam); }
+      if (rt !== undefined && !isWet(rt)) { P.r(X + TILE - 1, Y, 1, TILE, rt === 'sand' ? foam : Wc[1]); if (rt === 'sand') for (let i = 2; i < TILE; i += 5) P.r(X + TILE - 2, Y + i + frame, 1, 2, foam); }
+      if (t === 'bridge' || t === 'dock') {
+        // 놓인 방향: 양옆이 땅·다리면 가로로 건너는 다리, 아니면 세로
+        const solid = (n: VillageTile | undefined) => n !== undefined && (n === 'bridge' || n === 'dock' || !isWet(n));
+        const horiz = (solid(lf) || solid(rt)) && !(up === t || dn === t || (t === 'dock' && (solid(up) || solid(dn)) && !(solid(lf) && solid(rt))));
+        plankDeck(P, X, Y, horiz, t === 'dock', map.era, tr);
+      }
+    } else if (t === 'sand') {
+      // 모래사장: 잔물결 무늬·조개·조약돌, 물가 쪽은 젖은 모래 띠, 풀과 맞닿은 쪽은 풀이 살짝 덮는다
+      P.r(X, Y, TILE, TILE, Sd[2]);
+      for (let i = 0; i < 5; i++) P.r(X + Math.floor(tr() * 14), Y + Math.floor(tr() * 15), 2, 1, tr() < 0.5 ? Sd[1] : Sd[3]);
+      const ry = Y + 4 + Math.floor(tr() * 8), rx = X + Math.floor(tr() * 8);
+      P.r(rx, ry, 5, 1, Sd[3]); P.r(rx + 1, ry + 1, 3, 1, Sd[1]);
+      if (isWet(up)) P.r(X, Y, TILE, 2, Sd[1]);
+      if (isWet(dn)) P.r(X, Y + TILE - 2, TILE, 2, Sd[1]);
+      if (isWet(lf)) P.r(X, Y, 2, TILE, Sd[1]);
+      if (isWet(rt)) P.r(X + TILE - 2, Y, 2, TILE, Sd[1]);
+      if (tr() < 0.22) {
+        // 조개(시대별: 분홍 가리비 / 하얀 소라 / SF 빛나는 껍질) — 2×2 덩어리로 찍는다(외톨이 점 금지)
+        const sx = X + 3 + Math.floor(tr() * 9), sy = Y + 4 + Math.floor(tr() * 8);
+        const sh = ramp(map.era === 'sf' ? '#7ff3e0' : map.era === 'modern' ? '#f4ece0' : '#f0b3a6');
+        P.r(sx, sy, 2, 2, sh[2]); P.p(sx, sy, sh[3]); P.r(sx + 2, sy + 1, 1, 1, sh[1]); P.r(sx, sy + 2, 3, 1, Sd[1]);
+      } else if (tr() < 0.2) {
+        const R = ramp(T.rock), sx = X + 3 + Math.floor(tr() * 9), sy = Y + 5 + Math.floor(tr() * 7);
+        P.r(sx, sy, 3, 2, R[2]); P.r(sx, sy, 2, 1, R[3]); P.r(sx, sy + 2, 3, 1, Sd[1]);
+      }
+      edgeBlend(P, X, Y, up, dn, lf, rt, G, Sd, tr);
+    } else if (t === 'field') {
+      // 경작지(장소 '밭'): 고랑과 작물 줄 + 가장자리 울타리(시대별: 나무 울타리·흰 말뚝·레이저 펜스)
+      const S = ramp(T.soil), Cr = ramp(T.crop);
+      P.r(X, Y, TILE, TILE, S[2]);
+      for (let r = 0; r < 4; r++) {
+        P.r(X, Y + r * 4 + 3, TILE, 1, S[1]);
+        for (let c = 1; c < TILE - 1; c += 3) { P.r(X + c, Y + r * 4, 1, 2, Cr[3]); P.r(X + c + 1, Y + r * 4 + 1, 1, 1, Cr[1]); }
+      }
+      P.r(X, Y, TILE, 1, S[3]);
+      const fenceSide = (n: VillageTile | undefined) => n !== undefined && n !== 'field' && n !== 'path' && n !== 'plaza';
+      fence(P, X, Y, fenceSide(up), fenceSide(dn), fenceSide(lf), fenceSide(rt), map.era);
+    } else if (t === 'cliff') {
+      // 절벽(장소 '산'): 위는 풀 덮인 턱(SF는 암반), 아래는 결이 진 암벽. 위아래로 이어지면 한 덩어리 벽이 된다
+      const R = ramp(T.cliff);
+      P.r(X, Y, TILE, TILE, R[2]);
+      const topOpen = up !== 'cliff';
+      if (topOpen) {
+        const capC = map.era === 'sf' ? R[3] : G[2];
+        P.r(X, Y, TILE, 5, capC); P.r(X, Y, TILE, 1, map.era === 'sf' ? R[4] : G[3]);
+        for (let i = 0; i < TILE; i += 3) P.r(X + i, Y + 5, 2, 1, map.era === 'sf' ? R[1] : G[1]);
+        P.r(X, Y + 6, TILE, 1, R[0]);
+      }
+      for (let i = 0; i < 3; i++) { const cx2 = X + 2 + Math.floor(tr() * 12); P.r(cx2, Y + (topOpen ? 8 : 1), 1, 5 + Math.floor(tr() * 4), R[1]); }
+      P.r(X + 1, Y + (topOpen ? 7 : 0), 2, TILE - (topOpen ? 8 : 1), R[3]);
+      if (dn !== 'cliff') P.r(X, Y + TILE - 2, TILE, 2, R[0]);
+      if (lf !== 'cliff') P.r(X, Y, 1, TILE, R[0]);
+      if (rt !== 'cliff') P.r(X + TILE - 1, Y, 1, TILE, R[0]);
+      if (map.era === 'sf' && tr() < 0.4) P.r(X + 6, Y + 10, 2, 2, '#7ff3ff');
+    } else if (t === 'reed') {
+      // 갈대: 물가 풀 위로 키 큰 줄기 다섯 개 + 부들 이삭(2칸). SF는 끝이 빛나는 관 식물
+      const Rd = ramp(T.reed);
+      for (let i = 0; i < 5; i++) {
+        const sx = X + 1 + i * 3 + Math.floor(tr() * 2), h = 7 + Math.floor(tr() * 5), base = Y + 15;
+        P.r(sx, base - h, 1, h, i % 2 ? Rd[1] : Rd[2]);
+        if (i % 2 === 0) P.r(sx + 1, base - h + 3, 1, 3, Rd[3]);
+        P.r(sx, base - h - 2, 1, 2, map.era === 'sf' ? '#7ff3ff' : '#7a5134');
+      }
     } else if (t === 'flower') {
-      if (fieldNear.has(`${tx},${ty}`)) {
-        // 밭(장소 '밭' 주변): 고랑과 작물 줄
-        const S = ramp(T.soil), C = ramp(T.crop);
-        P.r(X, Y, TILE, TILE, S[2]);
-        for (let r = 0; r < 4; r++) {
-          P.r(X, Y + r * 4 + 3, TILE, 1, S[1]);
-          for (let c = 1; c < TILE; c += 3) { P.p(X + c, Y + r * 4 + 1, C[2]); P.p(X + c, Y + r * 4, C[3]); P.p(X + c + 1, Y + r * 4 + 1, C[1]); }
-        }
-        P.r(X, Y, TILE, 1, S[3]);
-      } else {
+      {
         // 꽃무더기: 꽃잎 램프(왼쪽 위 밝게, 오른쪽 아래 그림자) + 줄기 + 노란 꽃술
         for (let i = 0; i < 4; i++) {
           const fx = X + 2 + Math.floor(tr() * 11), fy = Y + 3 + Math.floor(tr() * 10);
@@ -654,6 +904,48 @@ function drawGround(map: VillageMap, seed: string, frame: number, fieldNear: Set
     }
   }
   return cv;
+}
+/** 다리·선착장 널 — 과거 나무 널과 새끼줄 난간, 현대 나무 데크와 쇠 난간, SF 금속 격자와 빛 띠. horiz면 좌우로 건넌다 */
+function plankDeck(P: Painter, X: number, Y: number, horiz: boolean, dock: boolean, era: VillageEra, rnd: () => number) {
+  const base = era === 'past' ? '#9a6b45' : era === 'modern' ? '#b08a64' : '#6b78a6';
+  const [o, s, m, l, hi] = ramp(base);
+  const a0 = dock ? 1 : 3, a1 = dock ? 15 : 13;          // 폭 방향 범위(선착장은 넓게)
+  if (horiz) {
+    P.r(X, Y + a0, TILE, a1 - a0, m);
+    for (let x = 0; x < TILE; x += 4) { P.r(X + x, Y + a0, 1, a1 - a0, era === 'sf' ? o : s); P.r(X + x + 1, Y + a0, 1, a1 - a0, l); }
+    P.r(X, Y + a0, TILE, 1, hi); P.r(X, Y + a1 - 1, TILE, 1, o);
+    if (!dock) { P.r(X, Y + a0 - 1, TILE, 1, o); P.r(X, Y + a1, TILE, 1, s); }
+  } else {
+    P.r(X + a0, Y, a1 - a0, TILE, m);
+    for (let y = 0; y < TILE; y += 4) { P.r(X + a0, Y + y, a1 - a0, 1, era === 'sf' ? o : s); P.r(X + a0, Y + y + 1, a1 - a0, 1, l); }
+    P.r(X + a0, Y, 1, TILE, hi); P.r(X + a1 - 1, Y, 1, TILE, o);
+    if (!dock) { P.r(X + a0 - 1, Y, 1, TILE, o); P.r(X + a1, Y, 1, TILE, s); }
+  }
+  // 난간·말뚝 — 시대별 표지
+  const post = era === 'past' ? '#6b4a2f' : era === 'modern' ? '#8d96a3' : '#3a4468';
+  const [po] = ramp(post);
+  const corners: [number, number][] = horiz ? [[1, a0 - 1], [12, a0 - 1], [1, a1 - 2], [12, a1 - 2]] : [[a0 - 1, 1], [a1 - 2, 1], [a0 - 1, 12], [a1 - 2, 12]];
+  for (const [cx, cy] of corners) { P.r(X + cx, Y + cy, 2, 2, post); P.p(X + cx + 1, Y + cy + 1, po); }
+  if (era === 'sf') {
+    const glow = rnd() < 0.5 ? '#56e0e8' : '#3fb0bf';
+    if (horiz) { P.r(X + 3, Y + a0 + 1, 2, 1, glow); P.r(X + 11, Y + a1 - 2, 2, 1, glow); }
+    else { P.r(X + a0 + 1, Y + 3, 1, 2, glow); P.r(X + a1 - 2, Y + 11, 1, 2, glow); }
+  } else if (era === 'past' && !dock) {
+    // 새끼줄 난간: 말뚝 사이 처진 줄
+    if (horiz) { P.r(X + 3, Y + a0 - 1, 9, 1, '#c9a35a'); P.r(X + 3, Y + a1, 9, 1, '#c9a35a'); }
+    else { P.r(X + a0 - 1, Y + 3, 1, 9, '#c9a35a'); P.r(X + a1, Y + 3, 1, 9, '#c9a35a'); }
+  }
+}
+/** 경작지 울타리 — 바깥쪽 변에만. 과거 나무 울짱, 현대 흰 말뚝 울타리, SF 레이저 펜스 */
+function fence(P: Painter, X: number, Y: number, n: boolean, s: boolean, w: boolean, e: boolean, era: VillageEra) {
+  const c = era === 'past' ? '#8a5a36' : era === 'modern' ? '#efe9dc' : '#3a4468';
+  const [o, , m, l] = ramp(c);
+  const rail = era === 'sf' ? '#ff5fd2' : m;
+  const postAt = (x: number, y: number) => { P.r(x, y - 3, 2, 4, m); P.p(x, y - 3, l); P.r(x + 1, y - 2, 1, 3, o); };
+  if (n) { P.r(X, Y + 1, TILE, 1, rail); for (let x = 1; x < TILE; x += 7) postAt(X + x, Y + 3); }
+  if (s) { P.r(X, Y + TILE - 3, TILE, 1, rail); for (let x = 1; x < TILE; x += 7) postAt(X + x, Y + TILE - 1); }
+  if (w) { P.r(X + 1, Y, 1, TILE, rail); for (let y = 4; y <= TILE; y += 7) postAt(X, Y + y); }
+  if (e) { P.r(X + TILE - 2, Y, 1, TILE, rail); for (let y = 4; y <= TILE; y += 7) postAt(X + TILE - 2, Y + y); }
 }
 /** 길·광장 가장자리를 풀과 섞는다 — 풀이 1~2px 덮고, 위쪽 풀 아래에는 1px 그림자(빛이 위에서) */
 function edgeBlend(P: Painter, X: number, Y: number, up: VillageTile | undefined, dn: VillageTile | undefined, lf: VillageTile | undefined, rt: VillageTile | undefined, G: string[], D: string[], rnd: () => number) {
@@ -722,9 +1014,28 @@ export function buildScene(map: VillageMap, seed: string): VillageScene {
     for (const l of art.lights) lights.push({ x: bx + l.x, y: by + l.y, r: l.r, color: l.color || def });
     for (let ty = Math.floor(by / TILE); ty <= pl.y + 1; ty++) for (let tx = Math.floor(bx / TILE); tx <= Math.floor((bx + art.img.width - 1) / TILE); tx++) covered.add(`${tx},${ty}`);
   }
-  const fieldNear = new Set<string>();
-  for (const p of map.places) if (p.kind === 'field') for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) fieldNear.add(`${p.x + dx},${p.y + dy}`);
-  const ground: [HTMLCanvasElement, HTMLCanvasElement] = [drawGround(map, seed, 0, fieldNear, covered), drawGround(map, seed, 1, fieldNear, covered)];
+  // 상점 장소가 없는 방은 광장 한쪽에 노점(키오스크) — 상점 탭이 열리는 자리 (v3 기획서 5장)
+  if (map.kiosk) {
+    const art = kioskArt(era);
+    const bx = map.kiosk.x * TILE + TILE / 2 - Math.floor(art.img.width / 2), by = (map.kiosk.y + 1) * TILE - art.img.height;
+    props.push({ img: art.img, x: bx, y: by, sortY: map.kiosk.y - 0.02 });
+    for (const l of art.lights) lights.push({ x: bx + l.x, y: by + l.y, r: l.r, color: l.color || def });
+  }
+  // 바다 장소: 선착장 끝에 배를 댄다(과거 나룻배·현대 요트·SF 셔틀) — 선착장과 나란히, 깊은 물 칸 위에
+  for (const pl of map.places) {
+    if (pl.kind !== 'sea' || !pl.dir) continue;
+    const [dx, dy] = { n: [0, -1], s: [0, 1], w: [-1, 0], e: [1, 0] }[pl.dir];
+    let ex = pl.x, ey = pl.y;
+    while (map.tiles[ey + dy]?.[ex + dx] === 'dock') { ex += dx; ey += dy; }
+    const vertical = dx === 0;
+    const img = boatArt(era, !vertical);
+    const side = vertical ? (map.tiles[ey]?.[ex + 1] === 'deep' ? 1 : -1) : (map.tiles[ey + 1]?.[ex] === 'deep' ? 1 : -1);
+    const bx = vertical ? (ex + side) * TILE : ex * TILE + (dx < 0 ? -6 : -8);
+    const by = vertical ? ey * TILE + (dy < 0 ? -10 : -6) : (ey + side) * TILE + 1;
+    props.push({ img, x: bx, y: by, sortY: ey + (vertical ? 0.4 : side) - 0.5 });
+    if (era === 'sf') lights.push({ x: bx + img.width / 2, y: by + img.height / 2, r: 20, color: 'rgba(110,240,255,' });
+  }
+  const ground: [HTMLCanvasElement, HTMLCanvasElement] = [drawGround(map, seed, 0, covered), drawGround(map, seed, 1, covered)];
   const treeImgs = [0, 1, 2, 3].map(v => treeArt(era, v));
   const pick = seededRandom(`props|${seed}`);
   // 가로등: 길 옆 나무·바위 칸(원래 걸을 수 없는 칸) 몇 곳을 골라 나무 대신 세운다 — 걷기 판정은 그대로
@@ -733,6 +1044,8 @@ export function buildScene(map: VillageMap, seed: string): VillageScene {
   for (let y = 2; y < map.height - 1; y++) for (let x = 1; x < map.width - 1; x++) {
     const t = map.tiles[y][x];
     if (covered.has(`${x},${y}`)) continue;
+    // 숲·산 장소 둘레의 나무·바위는 가로등으로 바꾸지 않는다(숲이 성글어 보였다) (v3)
+    if (map.places.some(p => (p.kind === 'forest' || p.kind === 'mountain') && Math.abs(p.x - x) <= 3 && Math.abs(p.y - y) <= 3)) continue;
     if ((t === 'tree' || t === 'rock') && [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dy]) => map.tiles[y + dy][x + dx] === 'path')) lampCand.push([x, y]);
   }
   for (let i = lampCand.length - 1; i > 0; i--) { const j = Math.floor(pick() * (i + 1)); [lampCand[i], lampCand[j]] = [lampCand[j], lampCand[i]]; }

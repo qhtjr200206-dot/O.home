@@ -138,7 +138,7 @@ export async function handleVillage(req: Request): Promise<Response> {
       case 'create': return json(await createRoom(c, need(), b.room));
       case 'delete': await deleteRoom(c, need(), b.roomId); return json({ ok: true });
       case 'join': return json(await joinRoom(c, b.roomId, b.password, need()));
-      case 'state': return json(await roomState(c, b.roomId, b.token, uid, b.since));
+      case 'state': return json(await roomState(c, b.roomId, b.token, uid, b.since, b.econ));
       case 'controls': return json({ actors: await myControls(c, b.roomId, b.token, uid) });
       case 'act': return json(await act(c, b.roomId, b.token, uid, b.action));
       case 'password': return json(await changePassword(c, need(), b.roomId, b.password));

@@ -1,7 +1,8 @@
 // 마을 자율 행동 — 순수 함수. 같은 방·같은 시각이면 모든 접속자가 같은 장면을 본다.
 // 시간대(한국 시각)와 캐릭터 설정값(성격·집·대사)으로 목적지와 대사를 정한다.
-import { findPath, seededRandom, walkable, type VillageMap } from './map';
+import { findPath, nearestWalkable, seededRandom, walkable, type VillageMap } from './map';
 import type { ActorOverride, RoomActor } from './types';
+import { FRIEND_PTS } from './economy';
 
 export const BLOCK_MS = 10 * 60 * 1000;     // 10분마다 새 목적지
 export const STEP_MS = 650;                 // 한 칸 걷는 시간
@@ -58,7 +59,8 @@ function placeTile(map: VillageMap, placeId: string) {
   const p = map.places.find(x => x.id === placeId);
   return p ? { x: p.x, y: p.y } : { x: Math.floor(map.width / 2), y: Math.floor(map.height / 2) };
 }
-function homeOf(map: VillageMap, a: RoomActor, seed: string) {
+/** 배우의 집 장소 id — 집을 안 정했으면 시드로 정한다(집 꾸미기의 '주민' 판정도 이 함수를 쓴다) */
+export function homeOf(map: VillageMap, a: Pick<RoomActor, 'id' | 'home'>, seed: string) {
   if (a.home && map.places.some(p => p.id === a.home)) return a.home;
   if (!map.places.length) return '';
   return map.places[Math.floor(hash(`${seed}|home|${a.id}`) * map.places.length)].id;
@@ -73,7 +75,8 @@ export function targetPlace(map: VillageMap, seed: string, a: RoomActor, block: 
   if (phase === 'dawn' || phase === 'night') return home;
   if (!ids.length) return '';
   const pick = (list: string[]) => list.length ? list[Math.floor(r * list.length) % list.length] : '';
-  const quiet = map.places.filter(p => p.kind === 'forest' || p.kind === 'water' || p.kind === 'field').map(p => p.id);
+  // 조용한 곳 = 지형 장소(바다·강·호수·숲·산·밭·정원·우물) (v3 지형 장소)
+  const quiet = map.places.filter(p => p.kind === 'sea' || p.kind === 'river' || p.kind === 'lake' || p.kind === 'forest' || p.kind === 'mountain' || p.kind === 'field' || p.kind === 'garden' || p.kind === 'well').map(p => p.id);
   const lively = map.places.filter(p => p.kind === 'shop' || p.kind === 'school' || p.kind === 'tower').map(p => p.id);
   if (phase === 'evening' && r < 0.45) return '';               // 저녁엔 광장에 모인다
   if (phase === 'noon' && lively.length && r < 0.5) return pick(lively);
@@ -118,20 +121,41 @@ function cachedPath(map: VillageMap, seed: string, a: { x: number; y: number }, 
   return p;
 }
 
+/** 호감도 — 두 배우 사이 점수(방향 없음) */
+export interface BondMark { a: string; b: string; pts: number }
+
+/** 가장 친한 친구(친구 단계 이상)와 같은 장소로 가는지 — 낮 시간대(아침·점심·오후)에만.
+ *  저녁·밤·새벽은 건드리지 않아 잠드는 시각·자리가 호감도와 무관하게 서버 판정과 같다 (v3 호감도 효과) */
+function friendTarget(map: VillageMap, seed: string, a: RoomActor, block: number, actors: RoomActor[], bonds: BondMark[]): string | null {
+  const ph = phaseAt(block * BLOCK_MS);
+  if (ph !== 'morning' && ph !== 'noon' && ph !== 'afternoon' || !bonds.length) return null;
+  let best: BondMark | null = null;
+  for (const b of bonds) if ((b.a === a.id || b.b === a.id) && b.pts >= FRIEND_PTS && (!best || b.pts > best.pts)) best = b;
+  if (!best) return null;
+  const friend = actors.find(x => x.id === (best!.a === a.id ? best!.b : best!.a));
+  if (!friend) return null;
+  // 친구 35%, 단짝(140) 이상 50% 확률로 그 블록에 친구가 가는 곳으로 간다
+  const p = best.pts >= 140 ? 0.5 : 0.35;
+  return hash(`${seed}|follow|${a.id}|${block}`) < p ? targetPlace(map, seed, friend, block) : null;
+}
+
 /** 시각 t의 모든 배우 위치·대사·상호작용 */
-export function simulate(map: VillageMap, seed: string, actors: RoomActor[], overrides: ActorOverride[], t: number, wakes: WakeMark[] = []): ActorFrame[] {
+export function simulate(map: VillageMap, seed: string, actors: RoomActor[], overrides: ActorOverride[], t: number, wakes: WakeMark[] = [], bonds: BondMark[] = []): ActorFrame[] {
   const block = Math.floor(t / BLOCK_MS);
   const phase = phaseAt(t);
   const takenPrev = new Set<string>(), takenNow = new Set<string>();
+  const goal = (a: RoomActor, b: number) => friendTarget(map, seed, a, b, actors, bonds) ?? targetPlace(map, seed, a, b);
   const frames: ActorFrame[] = actors.map((a, i) => {
     // 방마다 시작 칸만 섞고 배우 순서대로 칸을 나눈다 — 같은 장소에 모여도 12명까지는 서로 다른 칸에 선다
     const slot = Math.floor(hash(`${seed}|slot`) * SLOTS.length) + i;
     const ov = overrides.find(o => o.id === a.id && t - o.at < CONTROL_MS && t >= o.at - 60_000);
     if (ov) {
-      return { id: a.id, x: ov.x, y: ov.y, dir: 1, moving: false, sleeping: false, controlled: true, place: '' };
+      // 예전 조작 위치가 새 지형 규칙으로 물·절벽 칸이 됐으면 가장 가까운 걸을 수 있는 칸에 세운다 (v3 기존 방 호환)
+      const at = walkable(map.tiles[Math.round(ov.y)]?.[Math.round(ov.x)]) ? { x: ov.x, y: ov.y } : nearestWalkable(map, ov.x, ov.y);
+      return { id: a.id, x: at.x, y: at.y, dir: 1, moving: false, sleeping: false, controlled: true, place: '' };
     }
-    const prevPlace = targetPlace(map, seed, a, block - 1);
-    const place = targetPlace(map, seed, a, block);
+    const prevPlace = goal(a, block - 1);
+    const place = goal(a, block);
     const from = standTile(map, prevPlace, slot, takenPrev);
     const to = standTile(map, place, slot, takenNow);
     const startAt = block * BLOCK_MS + Math.floor(hash(`${seed}|start|${a.id}|${block}`) * 90_000);
@@ -164,11 +188,27 @@ export function simulate(map: VillageMap, seed: string, actors: RoomActor[], ove
     list.push(f);
     byPlace.set(f.place, list);
   }
+  // 호감도가 높은 쌍부터 먼저 짝짓는다(친구끼리 어울리는 장면이 늘어난다) — 같은 입력이면 늘 같은 결과
+  const pts = (x: string, y: string) => bonds.find(b => (b.a === x && b.b === y) || (b.a === y && b.b === x))?.pts ?? 0;
   for (const list of byPlace.values()) {
-    for (let i = 0; i + 1 < list.length; i += 2) {
-      list[i].partner = list[i + 1].id; list[i + 1].partner = list[i].id;
-      list[i].dir = list[i + 1].x >= list[i].x ? 1 : -1;
-      list[i + 1].dir = list[i].x >= list[i + 1].x ? 1 : -1;
+    const pairs: [ActorFrame, ActorFrame][] = [];
+    const left = [...list];
+    if (bonds.length) {
+      const cand: [number, number, number][] = [];
+      for (let i = 0; i < list.length; i++) for (let j = i + 1; j < list.length; j++) {
+        const p = pts(list[i].id, list[j].id);
+        if (p >= FRIEND_PTS) cand.push([p, i, j]);
+      }
+      cand.sort((x, y) => y[0] - x[0] || x[1] - y[1] || x[2] - y[2]);
+      const used = new Set<number>();
+      for (const [, i, j] of cand) if (!used.has(i) && !used.has(j)) { used.add(i); used.add(j); pairs.push([list[i], list[j]]); }
+      left.splice(0, left.length, ...list.filter((_, i) => !used.has(i)));
+    }
+    for (let i = 0; i + 1 < left.length; i += 2) pairs.push([left[i], left[i + 1]]);
+    for (const [p, q] of pairs) {
+      p.partner = q.id; q.partner = p.id;
+      p.dir = q.x >= p.x ? 1 : -1;
+      q.dir = p.x >= q.x ? 1 : -1;
     }
   }
   // 미리 입력해 둔 대사 — 성격에 따라 말하는 빈도가 다르다. 대사가 없으면 말하지 않는다.
